@@ -19,7 +19,6 @@ This service operates across multiple Proxmox hosts, connects via SSH, and can b
 
 ## 🚀 Quick Start
 
-### Step 1: Install Using `curl bash`
 To install **Proxmox VM Autoscale** easily, run the following `curl bash` command. This command will automatically clone the repository, execute the installation script, and set up the service for you.
 
 ```bash
@@ -32,12 +31,6 @@ bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autosc
 - Install Python dependencies.
 - Set up a **systemd unit file** to manage the autoscaling service.
 
-### Step 2: Enable the Service
-Enable the autoscale service using `systemctl`:
-
-```bash
-sudo systemctl enable vm_autoscale.service
-```
 
 > **💡 Note**: The service is enabled but not started automatically at the end of installation. Start it manually using the command below.
 
