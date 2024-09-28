@@ -87,4 +87,3 @@ class SSHClient:
         Context manager exit - ensure the SSH connection is closed.
         """
         self.close()
-
