@@ -1,0 +1,74 @@
+# Configuration file for vm_autoscale
+
+# Global thresholds for scaling VMs
+scaling_thresholds:
+  cpu:
+    high: 80            # Percentage CPU usage at which scaling up is triggered
+    low: 20             # Percentage CPU usage at which scaling down is considered
+  ram:
+    high: 85            # Percentage RAM usage at which scaling up is triggered
+    low: 25             # Percentage RAM usage at which scaling down is considered
+
+# Scaling limits for VMs
+scaling_limits:
+  min_cores: 1          # Minimum number of CPU cores that a VM can have
+  max_cores: 8          # Maximum number of CPU cores that a VM can have
+  min_ram_mb: 512       # Minimum RAM (in MB) that a VM can have
+  max_ram_mb: 16384     # Maximum RAM (in MB) that a VM can have
+
+# Time intervals for checking VM resources and performing actions (in seconds)
+check_interval: 60      # How often to check VM stats and take action if needed
+
+# List of Proxmox hosts to manage
+proxmox_hosts:
+  - name: host1
+    host: 192.168.1.10
+    ssh_user: root
+    ssh_password: your_password_here   # SSH password or key must be provided
+    ssh_key: /path/to/ssh_key          # Path to SSH private key (optional, use if no password)
+
+  - name: host2
+    host: 192.168.1.11
+    ssh_user: root
+    ssh_password: your_password_here
+    ssh_key: /path/to/ssh_key
+
+# Virtual machines to be monitored and scaled
+virtual_machines:
+  - vm_id: 101
+    proxmox_host: host1
+    scaling_enabled: true
+    cpu_scaling: true                 # Enable CPU scaling for this VM
+    ram_scaling: true                 # Enable RAM scaling for this VM
+
+  - vm_id: 102
+    proxmox_host: host2
+    scaling_enabled: true
+    cpu_scaling: true
+    ram_scaling: true
+
+# Logging configuration
+logging:
+  level: INFO                         # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  log_file: /var/log/vm_autoscale.log # Path to the log file
+
+# Alerts configuration (Optional)
+alerts:
+  email_enabled: false
+  email_recipient: admin@example.com
+  smtp_server: smtp.example.com
+  smtp_port: 587
+  smtp_user: your_smtp_user
+  smtp_password: your_smtp_password
+
+# Gotify notifications configuration (Optional)
+gotify:
+  enabled: true
+  server_url: https://gotify.example.com        # Base URL of the Gotify server
+  app_token: your_gotify_app_token_here         # Application token for authentication
+  priority: 5                                   # Notification priority level (1-10)
+
+# Safety checks for host resource limits
+host_limits:
+  max_host_cpu_percent: 90            # Max CPU usage percentage for the host before scaling is restricted
+  max_host_ram_percent: 90            # Max RAM usage percentage for the host before scaling is restricted
