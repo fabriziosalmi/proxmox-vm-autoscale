@@ -34,6 +34,9 @@ bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autosc
 
 > **💡 Note**: The service is enabled but not started automatically at the end of installation. Start it manually using the command below.
 
+> [!IMPORTANT]
+> VM hotplug feature in Proxmox requirements: to scale virtual machines on the fly please check the official [Proxmox documentation](https://pve.proxmox.com/wiki/Hotplug_(qemu_disk,nic,cpu,memory) to meet the needed requirements.
+
 ## ⚡ Usage
 
 ### ▶️ Start/Stop the Service
