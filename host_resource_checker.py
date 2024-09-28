@@ -40,4 +40,3 @@ class HostResourceChecker:
         except Exception as e:
             self.logger.error(f"Failed to check host resources: {str(e)}")
             raise
-
