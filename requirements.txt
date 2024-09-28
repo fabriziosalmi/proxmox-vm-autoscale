@@ -1,0 +1,17 @@
+# Required Libraries for Proxmox VM Autoscale
+
+# Paramiko - For SSH connections to Proxmox hosts
+paramiko==2.11.0
+
+# PyYAML - For parsing the YAML configuration file
+PyYAML==6.0
+
+# Requests - For sending Gotify notifications
+requests==2.31.0
+
+# Logging configuration (optional, if JSON-based logging is needed)
+logging-json-config==0.3
+
+# Optional dependencies for improved performance
+# cryptography - Used by Paramiko for secure connections
+cryptography==41.0.3
