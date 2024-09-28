@@ -1,0 +1,15 @@
+[Unit]
+Description=Proxmox VM Autoscale Service
+Documentation=https://github.com/fabriziosalmi/proxmox-vm-autoscale
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/vm_autoscale/autoscale.py
+WorkingDirectory=/usr/local/bin/vm_autoscale
+Restart=always
+RestartSec=10
+User=root
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
