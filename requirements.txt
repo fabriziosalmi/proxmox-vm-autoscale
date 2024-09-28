@@ -14,4 +14,4 @@ logging-json-config==0.3
 
 # Optional dependencies for improved performance
 # cryptography - Used by Paramiko for secure connections
-cryptography==41.0.3
+cryptography==43.0.1
