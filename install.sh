@@ -17,7 +17,7 @@ fi
 # Install necessary dependencies
 echo "Installing necessary dependencies..."
 apt-get update
-apt-get install -y python3 python3-pip git
+apt-get install -y python3 curl bash git python3-paramiko python3-yaml python3-requests python3-cryptography
 
 # Clone the repository
 echo "Cloning the repository..."
