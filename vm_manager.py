@@ -63,16 +63,21 @@ class VMResourceManager:
 
             # Get the current vcpus allocated to the VM, fallback to cores if vcpus is not defined
             current_vcpus = self._get_current_vcpus()
+            current_cores = int(self._get_current_cores())  # Get current number of cores from config
+
+            if current_vcpus > current_cores:
+                self.logger.warning(f"Adjusting 'vcpus' to be within the current 'cores' limit: {current_vcpus} -> {current_cores}")
+                current_vcpus = current_cores
 
             # Scale vcpus based on the given direction
             if direction == 'up':
-                new_vcpus = min(current_vcpus + 1, max_cores)
+                new_vcpus = min(current_vcpus + 1, current_cores)
                 if new_vcpus > current_vcpus:
                     self._set_vcpus(new_vcpus)
                     self.logger.info(f"VM {self.vm_id} vCPUs scaled up to {new_vcpus}")
             elif direction == 'down':
                 new_vcpus = max(current_vcpus - 1, 1)  # Ensure vcpus does not go below 1
-                if new_vcpus <= max_cores and new_vcpus < current_vcpus:
+                if new_vcpus <= current_cores and new_vcpus < current_vcpus:
                     self._set_vcpus(new_vcpus)
                     self.logger.info(f"VM {self.vm_id} vCPUs scaled down to {new_vcpus}")
 
@@ -98,11 +103,24 @@ class VMResourceManager:
 
         # Fallback to using cores if vcpus is not explicitly defined
         self.logger.warning(f"'vcpus' not found for VM {self.vm_id}. Falling back to 'cores' value.")
+        return int(self._get_current_cores())
+
+    def _get_current_cores(self):
+        """
+        Retrieves the current number of CPU cores allocated to the VM.
+        :return: Current core count
+        """
+        command = f"qm config {self.vm_id}"
+        output = self.ssh_client.execute_command(command)
+
+        # Log output for debugging
+        self.logger.debug(f"Raw output from 'qm config {self.vm_id}':\n{output}")
+
         data = re.search(r"cores: (\d+)", output)
         if data:
             return int(data.group(1))
         else:
-            raise ValueError(f"Could not determine vCPUs or cores for VM {self.vm_id}")
+            raise ValueError(f"Could not determine CPU cores for VM {self.vm_id}")
 
     def _set_vcpus(self, vcpus):
         """
@@ -112,12 +130,9 @@ class VMResourceManager:
         command = f"qm set {self.vm_id} -vcpus {vcpus}"
         self.ssh_client.execute_command(command)
 
-    def _get_max_cores(self):
-        return self.config['scaling_limits']['max_cores']
-
     def _set_max_cores(self, cores):
         """
-        Sets the maximum number of CPU cores for the VM. This is not changed dynamically.
+        Sets the maximum number of CPU cores for the VM.
         :param cores: Maximum number of CPU cores
         """
         command = f"qm set {self.vm_id} -cores {cores}"
