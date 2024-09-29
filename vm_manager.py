@@ -60,26 +60,39 @@ class VMResourceManager:
             # Set the maximum cores based on configuration (fixed, not changed dynamically)
             max_cores = self._get_max_cores()
             self._set_max_cores(max_cores)
-
-            # Get the current vcpus allocated to the VM, fallback to cores if vcpus is not defined
+    
+            # Get the current vcpus and cores allocated to the VM
             current_vcpus = self._get_current_vcpus()
-            current_cores = int(self._get_current_cores())  # Get current number of cores from config
-
-            if current_vcpus > current_cores:
-                self.logger.warning(f"Adjusting 'vcpus' to be within the current 'cores' limit: {current_vcpus} -> {current_cores}")
-                current_vcpus = current_cores
-
-            # Scale vcpus based on the given direction
+            current_cores = int(self._get_current_cores())
+    
             if direction == 'up':
+                # Increase vcpus, but ensure they don't exceed current cores
                 new_vcpus = min(current_vcpus + 1, current_cores)
                 if new_vcpus > current_vcpus:
                     self._set_vcpus(new_vcpus)
                     self.logger.info(f"VM {self.vm_id} vCPUs scaled up to {new_vcpus}")
+    
             elif direction == 'down':
-                new_vcpus = max(current_vcpus - 1, 1)  # Ensure vcpus does not go below 1
+                # Decrease vcpus, ensure it's at least 1 and does not exceed the current cores
+                new_vcpus = max(current_vcpus - 1, 1)
+                
+                # Check if vcpus exceed current cores
+                if new_vcpus > current_cores:
+                    # Adjust cores down first
+                    new_cores = new_vcpus
+                    self.logger.warning(f"Adjusting 'cores' to match the 'vcpus' value: {new_cores}")
+                    self._set_max_cores(new_cores)
+                    current_cores = new_cores
+                
+                # Now set the new vcpus value, ensuring it is within bounds
                 if new_vcpus <= current_cores and new_vcpus < current_vcpus:
                     self._set_vcpus(new_vcpus)
                     self.logger.info(f"VM {self.vm_id} vCPUs scaled down to {new_vcpus}")
+    
+        except Exception as e:
+            self.logger.error(f"Failed to scale CPU for VM {self.vm_id}: {str(e)}")
+            raise
+
 
         except Exception as e:
             self.logger.error(f"Failed to scale CPU for VM {self.vm_id}: {str(e)}")
