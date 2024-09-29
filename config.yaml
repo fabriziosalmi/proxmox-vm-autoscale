@@ -17,7 +17,7 @@ scaling_limits:
   max_ram_mb: 16384     # Maximum RAM (in MB) that a VM can have
 
 # Time intervals for checking VM resources and performing actions (in seconds)
-check_interval: 60      # How often to check VM stats and take action if needed
+check_interval: 300      # How often to check VM stats and take action if needed
 
 # List of Proxmox hosts to manage
 proxmox_hosts:
