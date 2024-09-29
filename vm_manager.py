@@ -71,34 +71,13 @@ class VMResourceManager:
                     self._set_vcpus(new_vcpus)
                     self.logger.info(f"VM {self.vm_id} vCPUs scaled up to {new_vcpus}")
             elif direction == 'down':
-                new_vcpus = max(current_vcpus - 1, self._get_min_vcpus())
-                if new_vcpus < current_vcpus:
+                new_vcpus = max(current_vcpus - 1, 1)  # Ensure vcpus does not go below 1
+                if new_vcpus <= max_cores and new_vcpus < current_vcpus:
                     self._set_vcpus(new_vcpus)
                     self.logger.info(f"VM {self.vm_id} vCPUs scaled down to {new_vcpus}")
 
         except Exception as e:
             self.logger.error(f"Failed to scale CPU for VM {self.vm_id}: {str(e)}")
-            raise
-
-    def scale_ram(self, direction):
-        """
-        Scales the RAM for the VM up or down based on the given direction.
-        :param direction: 'up' to increase RAM, 'down' to decrease RAM
-        """
-        try:
-            current_ram = int(self._get_current_ram())
-            if direction == 'up':
-                new_ram = min(current_ram + 512, self._get_max_ram())
-                if new_ram > current_ram:
-                    self._set_ram(new_ram)
-                    self.logger.info(f"VM {self.vm_id} RAM scaled up to {new_ram} MB")
-            elif direction == 'down':
-                new_ram = max(current_ram - 512, self._get_min_ram())
-                if new_ram < current_ram:
-                    self._set_ram(new_ram)
-                    self.logger.info(f"VM {self.vm_id} RAM scaled down to {new_ram} MB")
-        except Exception as e:
-            self.logger.error(f"Failed to scale RAM for VM {self.vm_id}: {str(e)}")
             raise
 
     def _get_current_vcpus(self):
@@ -135,9 +114,6 @@ class VMResourceManager:
 
     def _get_max_cores(self):
         return self.config['scaling_limits']['max_cores']
-
-    def _get_min_vcpus(self):
-        return self.config['scaling_limits']['min_cores']
 
     def _set_max_cores(self, cores):
         """
