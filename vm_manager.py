@@ -138,50 +138,30 @@ class VMResourceManager:
         command = f"qm set {self.vm_id} -cores {cores}"
         self.ssh_client.execute_command(command)
 
-    def _get_current_ram(self):
+    def _get_max_cores(self):
         """
-        Retrieves the current RAM allocated to the VM in MB.
-        :return: Current RAM allocation in MB
+        Retrieves the maximum number of CPU cores allowed for scaling.
+        :return: Max core count from the configuration.
         """
-        command = f"qm config {self.vm_id}"
-        output = self.ssh_client.execute_command(command)
-        data = re.search(r"memory: (\d+)", output)
-        if data:
-            return int(data.group(1))
-        else:
-            raise ValueError(f"Could not determine RAM for VM {self.vm_id}")
+        return self.config['scaling_limits']['max_cores']
 
-    def _set_ram(self, ram):
+    def _get_min_cores(self):
         """
-        Sets the RAM for the VM.
-        :param ram: RAM value in MB to set
+        Retrieves the minimum number of CPU cores allowed for scaling.
+        :return: Min core count from the configuration.
         """
-        command = f"qm set {self.vm_id} -memory {ram}"
-        self.ssh_client.execute_command(command)
-
-    def _parse_ram_usage(self, output):
-        """
-        Parses RAM usage information from the command output.
-        :param output: Output from the `qm status` command.
-        :return: RAM usage as a percentage.
-        """
-        try:
-            # Attempt to calculate memory usage using maxmem and mem
-            maxmem_match = re.search(r"maxmem: (\d+)", output)
-            mem_match = re.search(r"mem: (\d+)", output)
-            if maxmem_match and mem_match:
-                maxmem = int(maxmem_match.group(1))
-                mem = int(mem_match.group(1))
-                return (mem / maxmem) * 100 if maxmem else 0.0
-            else:
-                self.logger.error(f"Could not parse RAM usage information from output: {output}")
-                return 0.0  # Default to 0 if unable to parse
-        except Exception as e:
-            self.logger.error(f"Error parsing RAM usage: {str(e)}")
-            raise
+        return self.config['scaling_limits']['min_cores']
 
     def _get_max_ram(self):
+        """
+        Retrieves the maximum RAM allowed for scaling (in MB).
+        :return: Max RAM in MB from the configuration.
+        """
         return self.config['scaling_limits']['max_ram_mb']
 
     def _get_min_ram(self):
+        """
+        Retrieves the minimum RAM allowed for scaling (in MB).
+        :return: Min RAM in MB from the configuration.
+        """
         return self.config['scaling_limits']['min_ram_mb']
