@@ -159,8 +159,10 @@ python3 /usr/local/bin/vm_autoscale/autoscale.py
 ### 🤝 Contributing
 Contributions are welcome! If you find a bug or have an idea for improvement, please submit an issue or a pull request on [GitHub](https://github.com/fabriziosalmi/proxmox-vm-autoscale).
 
-## 📜 License
-This project is licensed under the **MIT License**. See the LICENSE file for full details.
+### Disclaimer
 
-## 💬 Support
-If you encounter any issues, please report them via [GitHub Issues](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues). Your feedback helps me make Proxmox VM Autoscale better for everyone! 🌟
+> [!CAUTION]
+> I am not responsible for any potential damage or issues that may arise from using this tool. 
+
+### 📜 License
+This project is licensed under the **MIT License**. See the LICENSE file for full details.
