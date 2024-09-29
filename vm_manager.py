@@ -165,3 +165,24 @@ class VMResourceManager:
         :return: Min RAM in MB from the configuration.
         """
         return self.config['scaling_limits']['min_ram_mb']
+
+    def _parse_ram_usage(self, output):
+        """
+        Parses RAM usage information from the command output.
+        :param output: Output from the `qm status` command.
+        :return: RAM usage as a percentage.
+        """
+        try:
+            # Attempt to calculate memory usage using maxmem and mem
+            maxmem_match = re.search(r"maxmem: (\d+)", output)
+            mem_match = re.search(r"mem: (\d+)", output)
+            if maxmem_match and mem_match:
+                maxmem = int(maxmem_match.group(1))
+                mem = int(mem_match.group(1))
+                return (mem / maxmem) * 100 if maxmem else 0.0
+            else:
+                self.logger.error(f"Could not parse RAM usage information from output: {output}")
+                return 0.0  # Default to 0 if unable to parse
+        except Exception as e:
+            self.logger.error(f"Error parsing RAM usage: {str(e)}")
+            raise
