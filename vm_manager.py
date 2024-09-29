@@ -26,14 +26,22 @@ class VMResourceManager:
             return False
 
     def get_resource_usage(self):
+        """
+        Retrieves the CPU and RAM usage of the VM using Proxmox host metrics.
+        :return: Tuple of (cpu_usage, ram_usage) as percentages.
+        """
         try:
             if not self.is_vm_running():
-                return 0.0, 0.0
+                return 0.0, 0.0  # Return zero usage if VM is not running
 
+            # Get the current status of the VM
             command = f"qm status {self.vm_id} --verbose"
             output = self.ssh_client.execute_command(command)
+
+            # Log the output for debugging purposes
             self.logger.debug(f"Raw output from 'qm status {self.vm_id} --verbose':\n{output}")
 
+            # Parse RAM usage from the output (we could not find CPU usage here, assume zero for now)
             ram_usage = self._parse_ram_usage(output)
             cpu_usage = 0.0  # Assuming no CPU usage data available in the output
 
@@ -45,21 +53,29 @@ class VMResourceManager:
 
     def scale_cpu(self, direction):
         """
-        Scales the CPU for the VM up or down based on the given direction.
-        :param direction: 'up' to increase CPU, 'down' to decrease CPU
+        Scales the virtual CPUs (vcpus) for the VM up or down based on the given direction.
+        :param direction: 'up' to increase vcpus, 'down' to decrease vcpus
         """
         try:
-            current_cores = int(self._get_current_cpu_cores())
+            # Set the maximum cores based on configuration (fixed, not changed dynamically)
+            max_cores = self._get_max_cores()
+            self._set_max_cores(max_cores)
+
+            # Get the current vcpus allocated to the VM
+            current_vcpus = int(self._get_current_vcpus())
+
+            # Scale vcpus based on the given direction
             if direction == 'up':
-                new_cores = min(current_cores + 1, self._get_max_cores())
-                if new_cores > current_cores:
-                    self._set_cpu_cores(new_cores)
-                    self.logger.info(f"VM {self.vm_id} CPU scaled up to {new_cores} cores")
+                new_vcpus = min(current_vcpus + 1, max_cores)
+                if new_vcpus > current_vcpus:
+                    self._set_vcpus(new_vcpus)
+                    self.logger.info(f"VM {self.vm_id} vCPUs scaled up to {new_vcpus}")
             elif direction == 'down':
-                new_cores = max(current_cores - 1, self._get_min_cores())
-                if new_cores < current_cores:
-                    self._set_cpu_cores(new_cores)
-                    self.logger.info(f"VM {self.vm_id} CPU scaled down to {new_cores} cores")
+                new_vcpus = max(current_vcpus - 1, self._get_min_vcpus())
+                if new_vcpus < current_vcpus:
+                    self._set_vcpus(new_vcpus)
+                    self.logger.info(f"VM {self.vm_id} vCPUs scaled down to {new_vcpus}")
+
         except Exception as e:
             self.logger.error(f"Failed to scale CPU for VM {self.vm_id}: {str(e)}")
             raise
@@ -85,23 +101,37 @@ class VMResourceManager:
             self.logger.error(f"Failed to scale RAM for VM {self.vm_id}: {str(e)}")
             raise
 
-    def _get_current_cpu_cores(self):
+    def _get_current_vcpus(self):
         """
-        Retrieves the current number of CPU cores allocated to the VM.
-        :return: Current CPU core count
+        Retrieves the current number of vCPUs allocated to the VM.
+        :return: Current vCPU count
         """
         command = f"qm config {self.vm_id}"
         output = self.ssh_client.execute_command(command)
-        data = re.search(r"cores: (\d+)", output)
+        data = re.search(r"vcpus: (\d+)", output)
         if data:
             return data.group(1)
         else:
-            raise ValueError(f"Could not determine CPU cores for VM {self.vm_id}")
+            raise ValueError(f"Could not determine vCPUs for VM {self.vm_id}")
 
-    def _set_cpu_cores(self, cores):
+    def _set_vcpus(self, vcpus):
         """
-        Sets the number of CPU cores for the VM.
-        :param cores: Number of CPU cores to set
+        Sets the number of vCPUs for the VM.
+        :param vcpus: Number of vCPUs to set
+        """
+        command = f"qm set {self.vm_id} -vcpus {vcpus}"
+        self.ssh_client.execute_command(command)
+
+    def _get_max_cores(self):
+        return self.config['scaling_limits']['max_cores']
+
+    def _get_min_vcpus(self):
+        return self.config['scaling_limits']['min_cores']
+
+    def _set_max_cores(self, cores):
+        """
+        Sets the maximum number of CPU cores for the VM. This is not changed dynamically.
+        :param cores: Maximum number of CPU cores
         """
         command = f"qm set {self.vm_id} -cores {cores}"
         self.ssh_client.execute_command(command)
