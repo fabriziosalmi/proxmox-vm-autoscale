@@ -61,8 +61,8 @@ class VMResourceManager:
             max_cores = self._get_max_cores()
             self._set_max_cores(max_cores)
 
-            # Get the current vcpus allocated to the VM
-            current_vcpus = int(self._get_current_vcpus())
+            # Get the current vcpus allocated to the VM, fallback to cores if vcpus is not defined
+            current_vcpus = self._get_current_vcpus()
 
             # Scale vcpus based on the given direction
             if direction == 'up':
@@ -108,11 +108,22 @@ class VMResourceManager:
         """
         command = f"qm config {self.vm_id}"
         output = self.ssh_client.execute_command(command)
+
+        # Log output for debugging
+        self.logger.debug(f"Raw output from 'qm config {self.vm_id}':\n{output}")
+
+        # Try to find the vcpus setting first
         data = re.search(r"vcpus: (\d+)", output)
         if data:
-            return data.group(1)
+            return int(data.group(1))
+
+        # Fallback to using cores if vcpus is not explicitly defined
+        self.logger.warning(f"'vcpus' not found for VM {self.vm_id}. Falling back to 'cores' value.")
+        data = re.search(r"cores: (\d+)", output)
+        if data:
+            return int(data.group(1))
         else:
-            raise ValueError(f"Could not determine vCPUs for VM {self.vm_id}")
+            raise ValueError(f"Could not determine vCPUs or cores for VM {self.vm_id}")
 
     def _set_vcpus(self, vcpus):
         """
@@ -145,7 +156,7 @@ class VMResourceManager:
         output = self.ssh_client.execute_command(command)
         data = re.search(r"memory: (\d+)", output)
         if data:
-            return data.group(1)
+            return int(data.group(1))
         else:
             raise ValueError(f"Could not determine RAM for VM {self.vm_id}")
 
@@ -177,12 +188,6 @@ class VMResourceManager:
         except Exception as e:
             self.logger.error(f"Error parsing RAM usage: {str(e)}")
             raise
-
-    def _get_max_cores(self):
-        return self.config['scaling_limits']['max_cores']
-
-    def _get_min_cores(self):
-        return self.config['scaling_limits']['min_cores']
 
     def _get_max_ram(self):
         return self.config['scaling_limits']['max_ram_mb']
