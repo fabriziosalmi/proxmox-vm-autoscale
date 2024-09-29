@@ -114,25 +114,62 @@ class VMResourceManager:
         try:
             # Get the current RAM allocated to the VM in MB
             current_ram = int(self._get_current_ram())
-
+    
+            # Check hotplug capability for memory in current configuration
+            if not self._is_memory_hotplug_enabled():
+                self.logger.error(f"Memory hotplug is not enabled for VM {self.vm_id}. Skipping RAM scaling.")
+                return
+    
             # Determine new RAM based on scaling direction
             if direction == 'up':
                 new_ram = min(current_ram + 512, self._get_max_ram())
                 if new_ram > current_ram:
                     self.logger.info(f"Scaling up RAM from {current_ram} MB to {new_ram} MB")
-                    self._set_ram(new_ram)
-                    self.logger.info(f"VM {self.vm_id} RAM scaled up to {new_ram} MB")
-
+                    if self._try_set_ram(new_ram):
+                        self.logger.info(f"VM {self.vm_id} RAM scaled up to {new_ram} MB")
+    
             elif direction == 'down':
                 new_ram = max(current_ram - 512, self._get_min_ram())
                 if new_ram < current_ram:
                     self.logger.info(f"Scaling down RAM from {current_ram} MB to {new_ram} MB")
-                    self._set_ram(new_ram)
-                    self.logger.info(f"VM {self.vm_id} RAM scaled down to {new_ram} MB")
-
+                    if self._try_set_ram(new_ram):
+                        self.logger.info(f"VM {self.vm_id} RAM scaled down to {new_ram} MB")
+    
         except Exception as e:
             self.logger.error(f"Failed to scale RAM for VM {self.vm_id}: {str(e)}")
             raise
+    
+    def _try_set_ram(self, ram):
+        """
+        Tries to set the RAM for the VM and handles hotplug issues.
+        :param ram: RAM value in MB to set
+        :return: True if successful, False otherwise
+        """
+        try:
+            command = f"qm set {self.vm_id} -memory {ram}"
+            self.ssh_client.execute_command(command)
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to set RAM for VM {self.vm_id}: {str(e)}")
+            return False
+    
+    def _is_memory_hotplug_enabled(self):
+        """
+        Checks if the memory hotplug feature is enabled for the VM.
+        :return: True if memory hotplug is enabled, False otherwise
+        """
+        try:
+            command = f"qm config {self.vm_id}"
+            output = self.ssh_client.execute_command(command)
+            # Check if hotplug includes 'memory'
+            if 'hotplug: memory' in output or 'hotplug: 1' in output:
+                return True
+            else:
+                return False
+        except Exception as e:
+            self.logger.error(f"Failed to check hotplug status for VM {self.vm_id}: {str(e)}")
+            return False
+
 
     def _get_current_vcpus(self):
         """
