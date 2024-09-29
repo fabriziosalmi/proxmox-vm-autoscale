@@ -63,7 +63,7 @@ alerts:
 
 # Gotify notifications configuration (Optional)
 gotify:
-  enabled: true
+  enabled: false
   server_url: https://gotify.example.com        # Base URL of the Gotify server
   app_token: your_gotify_app_token_here         # Application token for authentication
   priority: 5                                   # Notification priority level (1-10)
