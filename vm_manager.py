@@ -41,9 +41,9 @@ class VMResourceManager:
             # Log the output for debugging purposes
             self.logger.debug(f"Raw output from 'qm status {self.vm_id} --verbose':\n{output}")
 
-            # Parse RAM usage from the output (we could not find CPU usage here, assume zero for now)
+            # Parse RAM usage from the output
             ram_usage = self._parse_ram_usage(output)
-            cpu_usage = 0.0  # Assuming no CPU usage data available in the output
+            cpu_usage = 0.0  # Assuming no CPU usage data available in the output for now
 
             return cpu_usage, ram_usage
 
@@ -57,7 +57,7 @@ class VMResourceManager:
         :param direction: 'up' to increase vcpus, 'down' to decrease vcpus
         """
         try:
-            # Set the maximum cores based on configuration (fixed, not changed dynamically)
+            # Set the maximum cores based on configuration
             max_cores = self._get_max_cores()
     
             # Get the current vcpus and cores allocated to the VM
@@ -106,7 +106,33 @@ class VMResourceManager:
             self.logger.error(f"Failed to scale CPU for VM {self.vm_id}: {str(e)}")
             raise
 
+    def scale_ram(self, direction):
+        """
+        Scales the RAM for the VM up or down based on the given direction.
+        :param direction: 'up' to increase RAM, 'down' to decrease RAM
+        """
+        try:
+            # Get the current RAM allocated to the VM in MB
+            current_ram = int(self._get_current_ram())
 
+            # Determine new RAM based on scaling direction
+            if direction == 'up':
+                new_ram = min(current_ram + 512, self._get_max_ram())
+                if new_ram > current_ram:
+                    self.logger.info(f"Scaling up RAM from {current_ram} MB to {new_ram} MB")
+                    self._set_ram(new_ram)
+                    self.logger.info(f"VM {self.vm_id} RAM scaled up to {new_ram} MB")
+
+            elif direction == 'down':
+                new_ram = max(current_ram - 512, self._get_min_ram())
+                if new_ram < current_ram:
+                    self.logger.info(f"Scaling down RAM from {current_ram} MB to {new_ram} MB")
+                    self._set_ram(new_ram)
+                    self.logger.info(f"VM {self.vm_id} RAM scaled down to {new_ram} MB")
+
+        except Exception as e:
+            self.logger.error(f"Failed to scale RAM for VM {self.vm_id}: {str(e)}")
+            raise
 
     def _get_current_vcpus(self):
         """
@@ -175,6 +201,27 @@ class VMResourceManager:
         """
         return self.config['scaling_limits']['min_cores']
 
+    def _get_current_ram(self):
+        """
+        Retrieves the current RAM allocated to the VM in MB.
+        :return: Current RAM allocation in MB
+        """
+        command = f"qm config {self.vm_id}"
+        output = self.ssh_client.execute_command(command)
+        data = re.search(r"memory: (\d+)", output)
+        if data:
+            return int(data.group(1))
+        else:
+            raise ValueError(f"Could not determine RAM for VM {self.vm_id}")
+
+    def _set_ram(self, ram):
+        """
+        Sets the RAM for the VM.
+        :param ram: RAM value in MB to set
+        """
+        command = f"qm set {self.vm_id} -memory {ram}"
+        self.ssh_client.execute_command(command)
+
     def _get_max_ram(self):
         """
         Retrieves the maximum RAM allowed for scaling (in MB).
@@ -196,7 +243,6 @@ class VMResourceManager:
         :return: RAM usage as a percentage.
         """
         try:
-            # Attempt to calculate memory usage using maxmem and mem
             maxmem_match = re.search(r"maxmem: (\d+)", output)
             mem_match = re.search(r"mem: (\d+)", output)
             if maxmem_match and mem_match:
@@ -205,7 +251,7 @@ class VMResourceManager:
                 return (mem / maxmem) * 100 if maxmem else 0.0
             else:
                 self.logger.error(f"Could not parse RAM usage information from output: {output}")
-                return 0.0  # Default to 0 if unable to parse
+                return 0.0
         except Exception as e:
             self.logger.error(f"Error parsing RAM usage: {str(e)}")
             raise
