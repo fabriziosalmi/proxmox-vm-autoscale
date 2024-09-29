@@ -109,57 +109,68 @@ def main():
                 key_path=host.get('ssh_key')
             )
 
-            # Check VMs on the current Proxmox host
-            for vm in config['virtual_machines']:
-                if vm['proxmox_host'] != host['name']:
-                    continue
+            try:
+                ssh_client.connect()
 
-                if not vm.get('scaling_enabled', False):
-                    logger.info(f"Scaling not enabled for VM {vm['vm_id']}")
-                    continue
-
-                vm_manager = VMResourceManager(ssh_client, vm['vm_id'], config)
-                host_checker = HostResourceChecker(ssh_client)
-
-                try:
-                    # Get VM resource usage
-                    vm_cpu_usage, vm_ram_usage = vm_manager.get_resource_usage()
-                    logger.info(f"VM {vm['vm_id']} - CPU Usage: {vm_cpu_usage}%, RAM Usage: {vm_ram_usage}%")
-
-                    # Check host resource availability
-                    if not host_checker.check_host_resources(
-                            config['host_limits']['max_host_cpu_percent'],
-                            config['host_limits']['max_host_ram_percent']):
-                        logger.warning(f"Host resources are maxed out for {host['name']}. Scaling restricted.")
-                        send_notification(f"Host {host['name']} resources maxed out. Scaling restricted.")
+                # Check VMs on the current Proxmox host
+                for vm in config['virtual_machines']:
+                    if vm['proxmox_host'] != host['name']:
                         continue
 
-                    # Scale VM based on thresholds
-                    if vm['cpu_scaling']:
-                        if vm_cpu_usage > config['scaling_thresholds']['cpu']['high']:
-                            logger.info(f"Scaling up CPU for VM {vm['vm_id']}")
-                            vm_manager.scale_cpu('up')
-                            send_notification(f"Scaled up CPU for VM {vm['vm_id']} due to high usage.")
+                    if not vm.get('scaling_enabled', False):
+                        logger.info(f"Scaling not enabled for VM {vm['vm_id']}")
+                        continue
 
-                        elif vm_cpu_usage < config['scaling_thresholds']['cpu']['low']:
-                            logger.info(f"Scaling down CPU for VM {vm['vm_id']}")
-                            vm_manager.scale_cpu('down')
-                            send_notification(f"Scaled down CPU for VM {vm['vm_id']} due to low usage.")
+                    vm_manager = VMResourceManager(ssh_client, vm['vm_id'], config)
 
-                    if vm['ram_scaling']:
-                        if vm_ram_usage > config['scaling_thresholds']['ram']['high']:
-                            logger.info(f"Scaling up RAM for VM {vm['vm_id']}")
-                            vm_manager.scale_ram('up')
-                            send_notification(f"Scaled up RAM for VM {vm['vm_id']} due to high usage.")
+                    # Check if VM is running before performing scaling
+                    if not vm_manager.is_vm_running():
+                        continue
 
-                        elif vm_ram_usage < config['scaling_thresholds']['ram']['low']:
-                            logger.info(f"Scaling down RAM for VM {vm['vm_id']}")
-                            vm_manager.scale_ram('down')
-                            send_notification(f"Scaled down RAM for VM {vm['vm_id']} due to low usage.")
+                    host_checker = HostResourceChecker(ssh_client)
 
-                except Exception as e:
-                    logger.error(f"Error processing VM {vm['vm_id']} on host {host['name']}: {str(e)}")
-                    send_notification(f"Error processing VM {vm['vm_id']} on host {host['name']}: {str(e)}")
+                    try:
+                        # Get VM resource usage
+                        vm_cpu_usage, vm_ram_usage = vm_manager.get_resource_usage()
+                        logger.info(f"VM {vm['vm_id']} - CPU Usage: {vm_cpu_usage}%, RAM Usage: {vm_ram_usage}%")
+
+                        # Check host resource availability
+                        if not host_checker.check_host_resources(
+                                config['host_limits']['max_host_cpu_percent'],
+                                config['host_limits']['max_host_ram_percent']):
+                            logger.warning(f"Host resources are maxed out for {host['name']}. Scaling restricted.")
+                            send_notification(f"Host {host['name']} resources maxed out. Scaling restricted.")
+                            continue
+
+                        # Scale VM based on thresholds
+                        if vm['cpu_scaling']:
+                            if vm_cpu_usage > config['scaling_thresholds']['cpu']['high']:
+                                logger.info(f"Scaling up CPU for VM {vm['vm_id']}")
+                                vm_manager.scale_cpu('up')
+                                send_notification(f"Scaled up CPU for VM {vm['vm_id']} due to high usage.")
+
+                            elif vm_cpu_usage < config['scaling_thresholds']['cpu']['low']:
+                                logger.info(f"Scaling down CPU for VM {vm['vm_id']}")
+                                vm_manager.scale_cpu('down')
+                                send_notification(f"Scaled down CPU for VM {vm['vm_id']} due to low usage.")
+
+                        if vm['ram_scaling']:
+                            if vm_ram_usage > config['scaling_thresholds']['ram']['high']:
+                                logger.info(f"Scaling up RAM for VM {vm['vm_id']}")
+                                vm_manager.scale_ram('up')
+                                send_notification(f"Scaled up RAM for VM {vm['vm_id']} due to high usage.")
+
+                            elif vm_ram_usage < config['scaling_thresholds']['ram']['low']:
+                                logger.info(f"Scaling down RAM for VM {vm['vm_id']}")
+                                vm_manager.scale_ram('down')
+                                send_notification(f"Scaled down RAM for VM {vm['vm_id']} due to low usage.")
+
+                    except Exception as e:
+                        logger.error(f"Error processing VM {vm['vm_id']} on host {host['name']}: {str(e)}")
+                        send_notification(f"Error processing VM {vm['vm_id']} on host {host['name']}: {str(e)}")
+
+            finally:
+                ssh_client.close()  # Close the SSH connection
 
         time.sleep(config.get('check_interval', 60))
 

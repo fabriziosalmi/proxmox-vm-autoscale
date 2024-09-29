@@ -7,26 +7,24 @@ class HostResourceChecker:
         self.logger = logging.getLogger("host_resource_checker")
 
     def check_host_resources(self, max_host_cpu_percent, max_host_ram_percent):
-        """
-        Check the host's available resources to ensure scaling is within capacity.
-        :param max_host_cpu_percent: Maximum CPU usage percentage allowed for scaling.
-        :param max_host_ram_percent: Maximum RAM usage percentage allowed for scaling.
-        :return: True if the host has sufficient resources, False otherwise.
-        """
         try:
-            # Run `pvesh get /nodes/<node>/status` command to get host resource usage data
             command = "pvesh get /nodes/$(hostname)/status --output-format json"
             output = self.ssh_client.execute_command(command)
-            
-            # Parse JSON output
-            data = json.loads(output)
-            host_cpu_usage = data['cpu'] * 100   # Convert to percentage
-            host_ram_usage = (data['memory']['used'] / data['memory']['total']) * 100  # Convert to percentage
 
-            # Log current host resource status
+            data = json.loads(output)
+            host_cpu_usage = data['cpu'] * 100  # Convert to percentage
+            host_memory = data['memory']
+
+            total_mem = host_memory['total']
+            used_mem = host_memory['used']
+            cached_mem = host_memory.get('cached', 0)
+            free_mem = host_memory.get('free', 0)
+
+            available_mem = free_mem + cached_mem
+            host_ram_usage = ((total_mem - available_mem) / total_mem) * 100
+
             self.logger.info(f"Host CPU Usage: {host_cpu_usage:.2f}%, Host RAM Usage: {host_ram_usage:.2f}%")
 
-            # Check if host resources are within acceptable limits
             if host_cpu_usage > max_host_cpu_percent:
                 self.logger.warning(f"Host CPU usage exceeds maximum allowed limit ({host_cpu_usage:.2f}% > {max_host_cpu_percent}%)")
                 return False

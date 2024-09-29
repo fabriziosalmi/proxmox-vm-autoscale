@@ -8,27 +8,32 @@ class VMResourceManager:
         self.config = config
         self.logger = logging.getLogger("vm_resource_manager")
 
-    def get_resource_usage(self):
+    def is_vm_running(self):
         """
-        Retrieves the CPU and RAM usage of the VM using Proxmox host metrics.
-        :return: Tuple of (cpu_usage, ram_usage) as percentages.
+        Check if the VM is running.
+        :return: True if the VM is running, False otherwise.
         """
         try:
-            # Get VM status to confirm if the VM is running
-            command = f"qm list | grep {self.vm_id}"
-            status_output = self.ssh_client.execute_command(command).strip()
-            if "running" not in status_output:
-                self.logger.warning(f"VM {self.vm_id} is not running. Skipping resource usage retrieval.")
-                return 0.0, 0.0  # Return zero usage if VM is not running
-
-            # Use qm commands to get resource usage from the Proxmox host
             command = f"qm status {self.vm_id} --verbose"
             output = self.ssh_client.execute_command(command)
+            if "status: running" in output:
+                return True
+            else:
+                self.logger.info(f"VM {self.vm_id} is not running. Skipping scaling operations.")
+                return False
+        except Exception as e:
+            self.logger.error(f"Failed to get status for VM {self.vm_id}: {str(e)}")
+            return False
 
-            # Log the output for debugging purposes
+    def get_resource_usage(self):
+        try:
+            if not self.is_vm_running():
+                return 0.0, 0.0
+
+            command = f"qm status {self.vm_id} --verbose"
+            output = self.ssh_client.execute_command(command)
             self.logger.debug(f"Raw output from 'qm status {self.vm_id} --verbose':\n{output}")
 
-            # Parse RAM usage from the output (we could not find CPU usage here, assume zero for now)
             ram_usage = self._parse_ram_usage(output)
             cpu_usage = 0.0  # Assuming no CPU usage data available in the output
 
