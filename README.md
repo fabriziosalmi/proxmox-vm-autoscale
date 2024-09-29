@@ -5,6 +5,12 @@
 
 This service operates across multiple Proxmox hosts, connects via SSH, and can be easily installed and managed as a systemd service for seamless automation.
 
+> [!IMPORTANT]
+> You need to enable NUMA and Hotplug for CPU and Memory to scale VM resources:
+> - Enable NUMA: VM > Hardware > Processors > Enable NUMA ☑️
+> - Enable CPU Hotplug: VM > Options > Hotplug > CPU ☑️
+> - Enable Memory Hotplug: VM > Options > Hotplug > Memory ☑️
+
 ## ✨ Features
 - 🔄 **Auto-Scaling of VM CPU and RAM** based on real-time resource usage.
 - 🛠️ **Configuration-Driven** via an easy-to-edit YAML file.
