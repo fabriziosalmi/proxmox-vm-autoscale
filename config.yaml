@@ -13,7 +13,7 @@ scaling_thresholds:
 scaling_limits:
   min_cores: 1          # Minimum number of CPU cores that a VM can have
   max_cores: 8          # Maximum number of CPU cores that a VM can have
-  min_ram_mb: 512       # Minimum RAM (in MB) that a VM can have
+  min_ram_mb: 1024       # Minimum RAM (in MB) that a VM can have (updated since NUMA doeasnt like less than 1024MB)
   max_ram_mb: 16384     # Maximum RAM (in MB) that a VM can have
 
 # Time intervals for checking VM resources and performing actions (in seconds)
