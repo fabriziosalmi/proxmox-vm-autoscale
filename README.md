@@ -24,7 +24,7 @@ This service operates across multiple Proxmox hosts, connects via SSH, and can b
 - 💻 Basic understanding of Proxmox `qm` commands and SSH is recommended.
 
 > [!NOTE]
-> If You need to autoscale LXC containers on Proxmox You will like [this project](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
+> If You need to autoscale LXC containers resources on Proxmox hosts You will like [this project](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
 
 ## 🚀 Quick Start
 
