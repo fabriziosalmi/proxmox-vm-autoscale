@@ -7,11 +7,19 @@
 INSTALL_DIR="/usr/local/bin/vm_autoscale"
 REPO_URL="https://github.com/fabriziosalmi/proxmox-vm-autoscale"
 SERVICE_FILE="vm_autoscale.service"
+CONFIG_FILE="/usr/local/bin/vm_autoscale/config.yaml"
+BACKUP_FILE="/usr/local/bin/vm_autoscale/config.yaml.backup"
 
 # Ensure the script is run as root
 if [ "$EUID" -ne 0 ]; then
     echo "Please run as root"
     exit 1
+fi
+
+# Backup existing config.yaml if it exists
+if [ -f "$CONFIG_FILE" ]; then
+    echo "Backing up existing config.yaml to config.yaml.backup..."
+    cp "$CONFIG_FILE" "$BACKUP_FILE"
 fi
 
 # Install necessary dependencies
