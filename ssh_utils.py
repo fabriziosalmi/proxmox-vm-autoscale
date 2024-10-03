@@ -21,24 +21,25 @@ class SSHClient:
         """
         Establish an SSH connection to the host.
         """
-        try:
-            self.client = paramiko.SSHClient()
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            # Connect using password or private key
-            if self.password:
-                self.client.connect(self.host, username=self.user, password=self.password, timeout=10)
-            elif self.key_path:
-                private_key = paramiko.RSAKey.from_private_key_file(self.key_path)
-                self.client.connect(self.host, username=self.user, pkey=private_key, timeout=10)
-            else:
-                raise ValueError("Either password or key_path must be provided for SSH connection.")
-            
-            self.logger.info(f"Successfully connected to {self.host}")
+        if self.client is None:
+            try:
+                self.client = paramiko.SSHClient()
+                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                
+                # Connect using password or private key
+                if self.password:
+                    self.client.connect(self.host, username=self.user, password=self.password, timeout=10)
+                elif self.key_path:
+                    private_key = paramiko.RSAKey.from_private_key_file(self.key_path)
+                    self.client.connect(self.host, username=self.user, pkey=private_key, timeout=10)
+                else:
+                    raise ValueError("Either password or key_path must be provided for SSH connection.")
+                
+                self.logger.info(f"Successfully connected to {self.host}")
 
-        except Exception as e:
-            self.logger.error(f"Failed to connect to {self.host}: {str(e)}")
-            raise
+            except Exception as e:
+                self.logger.error(f"Failed to connect to {self.host}: {str(e)}")
+                raise
 
     def execute_command(self, command):
         """
@@ -46,7 +47,7 @@ class SSHClient:
         :param command: Command to execute.
         :return: Output of the command.
         """
-        if not self.client:
+        if self.client is None:
             self.connect()
 
         try:
@@ -64,10 +65,10 @@ class SSHClient:
 
         except Exception as e:
             self.logger.error(f"Error executing command on {self.host}: {str(e)}")
-            raise
-
-        finally:
-            self.close()  # Ensure the connection is closed after command execution
+            # Attempt to reconnect and execute the command again
+            self.close()
+            self.connect()  # Re-establish the connection
+            return self.execute_command(command)  # Retry the command
 
     def close(self):
         """
@@ -75,6 +76,7 @@ class SSHClient:
         """
         if self.client:
             self.client.close()
+            self.client = None  # Reset client to None
             self.logger.info(f"SSH connection closed for {self.host}")
 
     def __enter__(self):
