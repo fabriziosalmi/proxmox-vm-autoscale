@@ -1,4 +1,4 @@
-# 🚀 Proxmox VM Autoscale
+# 🚀 VM Autoscale
 
 ## 🌟 Overview
 **Proxmox VM Autoscale** is a dynamic scaling service that automatically adjusts virtual machine (VM) resources (CPU cores and RAM) on your Proxmox Virtual Environment (VE) based on real-time metrics and user-defined thresholds. This solution helps ensure efficient resource usage, optimizing performance and resource availability dynamically.
