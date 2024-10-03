@@ -8,6 +8,8 @@ class VMResourceManager:
         self.vm_id = vm_id
         self.config = config
         self.logger = logging.getLogger("vm_resource_manager")
+        self.last_scale_time = 0  # Initialize last scale time for cooldown
+        self.scale_cooldown = self.config.get('scale_cooldown', 300)  # Default cooldown 5 minutes
 
     def is_vm_running(self, retries=3, delay=5):
         """
@@ -54,24 +56,43 @@ class VMResourceManager:
             self.logger.error(f"Failed to get resource usage for VM {self.vm_id}: {str(e)}")
             raise
 
+    def can_scale(self):
+        """
+        Determines if scaling operations can be performed based on cooldown and host resource availability.
+        :return: True if scaling is allowed, False otherwise.
+        """
+        current_time = time.time()
+        if (current_time - self.last_scale_time) < self.scale_cooldown:
+            self.logger.info(f"Scaling operations are on cooldown. Next scaling allowed after {int(self.scale_cooldown - (current_time - self.last_scale_time))} seconds.")
+            return False
+
+        # Additional host resource checks can be integrated here if necessary
+        return True
+
     def scale_cpu(self, direction):
         """
         Scales the virtual CPUs (vcpus) for the VM up or down based on the given direction.
         :param direction: 'up' to increase vcpus, 'down' to decrease vcpus
         """
+        if not self.can_scale():
+            return
+
         try:
             max_cores = self._get_max_cores()
             min_cores = self._get_min_cores()
             current_cores = int(self._get_current_cores())
             current_vcpus = self._get_current_vcpus()
 
+            # Log the scaling decision
+            self.logger.info(f"Current Cores: {current_cores}, Current vCPUs: {current_vcpus}, Max Cores: {max_cores}, Min Cores: {min_cores}")
+
             # Scaling up
             if direction == 'up' and current_cores < max_cores:
-                self.logger.info(f"Scaling up cores from {current_cores} to {current_cores + 1}")
-                self._set_max_cores(current_cores + 1)
-                current_cores += 1
+                new_cores = current_cores + 1
+                self.logger.info(f"Scaling up cores from {current_cores} to {new_cores}")
+                self._set_max_cores(new_cores)
 
-                new_vcpus = min(current_vcpus + 1, current_cores)
+                new_vcpus = min(current_vcpus + 1, new_cores)
                 if new_vcpus > current_vcpus:
                     self.logger.info(f"Scaling up vCPUs from {current_vcpus} to {new_vcpus}")
                     self._set_vcpus(new_vcpus)
@@ -83,11 +104,19 @@ class VMResourceManager:
                     self.logger.info(f"Scaling down vCPUs from {current_vcpus} to {new_vcpus}")
                     self._set_vcpus(new_vcpus)
 
-                self.logger.info(f"Scaling down cores from {current_cores} to {current_cores - 1}")
-                self._set_max_cores(current_cores - 1)
+                new_cores = current_cores - 1
+                self.logger.info(f"Scaling down cores from {current_cores} to {new_cores}")
+                self._set_max_cores(new_cores)
+
+            else:
+                self.logger.info(f"No scaling action required for CPU direction '{direction}'.")
+
+            # Update last scale time after successful scaling
+            self.last_scale_time = time.time()
 
         except Exception as e:
             self.logger.error(f"Failed to scale CPU for VM {self.vm_id}: {str(e)}")
+            # Optionally implement rollback or alerting here
             raise
 
     def scale_ram(self, direction):
@@ -95,6 +124,9 @@ class VMResourceManager:
         Scales the RAM for the VM up or down based on the given direction.
         :param direction: 'up' to increase RAM, 'down' to decrease RAM
         """
+        if not self.can_scale():
+            return
+
         try:
             current_ram = int(self._get_current_ram())
 
@@ -108,6 +140,9 @@ class VMResourceManager:
                     self.logger.info(f"Scaling up RAM from {current_ram} MB to {new_ram} MB")
                     if self._try_set_ram(new_ram):
                         self.logger.info(f"VM {self.vm_id} RAM scaled up to {new_ram} MB")
+                    else:
+                        self.logger.error(f"Failed to scale up RAM for VM {self.vm_id}")
+                        return
 
             elif direction == 'down':
                 new_ram = max(current_ram - 512, self._get_min_ram())
@@ -115,24 +150,45 @@ class VMResourceManager:
                     self.logger.info(f"Scaling down RAM from {current_ram} MB to {new_ram} MB")
                     if self._try_set_ram(new_ram):
                         self.logger.info(f"VM {self.vm_id} RAM scaled down to {new_ram} MB")
+                    else:
+                        self.logger.error(f"Failed to scale down RAM for VM {self.vm_id}")
+                        return
+
+            else:
+                self.logger.warning(f"Unknown scaling direction '{direction}' for RAM.")
+                return
+
+            # Update last scale time after successful scaling
+            self.last_scale_time = time.time()
 
         except Exception as e:
             self.logger.error(f"Failed to scale RAM for VM {self.vm_id}: {str(e)}")
+            # Optionally implement rollback or alerting here
             raise
 
     def _try_set_ram(self, ram):
         """
-        Tries to set the RAM for the VM and handles hotplug issues.
+        Tries to set the RAM for the VM and handles hotplug issues with retries.
         :param ram: RAM value in MB to set
         :return: True if successful, False otherwise
         """
-        try:
-            command = f"qm set {self.vm_id} -memory {ram}"
-            self.ssh_client.execute_command(command)
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to set RAM for VM {self.vm_id}: {str(e)}")
-            return False
+        retries = 3
+        delay = 10  # seconds
+        for attempt in range(1, retries + 1):
+            try:
+                command = f"qm set {self.vm_id} -memory {ram}"
+                self.logger.debug(f"Executing command to set RAM: {command}")
+                self.ssh_client.execute_command(command)
+                self.logger.info(f"Successfully set RAM to {ram} MB for VM {self.vm_id}")
+                return True
+            except Exception as e:
+                self.logger.error(f"Attempt {attempt}: Failed to set RAM for VM {self.vm_id}: {str(e)}")
+                if attempt < retries:
+                    self.logger.info(f"Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    self.logger.error(f"All attempts to set RAM for VM {self.vm_id} have failed.")
+        return False
 
     def _is_memory_hotplug_enabled(self):
         """
@@ -142,9 +198,9 @@ class VMResourceManager:
         try:
             command = f"qm config {self.vm_id}"
             output = self.ssh_client.execute_command(command)
-            if 'hotplug: memory' in output or 'hotplug: 1' in output:
-                return True
-            return False
+            is_enabled = 'hotplug: memory' in output or 'hotplug: 1' in output
+            self.logger.debug(f"Memory hotplug enabled for VM {self.vm_id}: {is_enabled}")
+            return is_enabled
         except Exception as e:
             self.logger.error(f"Failed to check hotplug status for VM {self.vm_id}: {str(e)}")
             return False
@@ -159,7 +215,9 @@ class VMResourceManager:
             # Example parsing logic: Adjust based on actual output format
             cpu_match = re.search(r"cpu: (\d+)%", output)
             if cpu_match:
-                return float(cpu_match.group(1))
+                cpu_usage = float(cpu_match.group(1))
+                self.logger.debug(f"Parsed CPU usage for VM {self.vm_id}: {cpu_usage}%")
+                return cpu_usage
             self.logger.warning(f"Could not parse CPU usage information from output: {output}")
             return 0.0
         except Exception as e:
@@ -178,7 +236,9 @@ class VMResourceManager:
             if maxmem_match and mem_match:
                 maxmem = int(maxmem_match.group(1))
                 mem = int(mem_match.group(1))
-                return (mem / maxmem) * 100 if maxmem else 0.0
+                ram_usage = (mem / maxmem) * 100 if maxmem else 0.0
+                self.logger.debug(f"Parsed RAM usage for VM {self.vm_id}: {ram_usage}%")
+                return ram_usage
             else:
                 self.logger.error(f"Could not parse RAM usage information from output: {output}")
                 return 0.0
@@ -191,91 +251,170 @@ class VMResourceManager:
         Retrieves the current number of vCPUs allocated to the VM.
         :return: Current vCPU count
         """
-        command = f"qm config {self.vm_id}"
-        output = self.ssh_client.execute_command(command)
+        try:
+            command = f"qm config {self.vm_id}"
+            output = self.ssh_client.execute_command(command)
 
-        # Log output for debugging
-        self.logger.debug(f"Raw output from 'qm config {self.vm_id}':\n{output}")
+            # Log output for debugging
+            self.logger.debug(f"Raw output from 'qm config {self.vm_id}':\n{output}")
 
-        # Try to find the vcpus setting first
-        data = re.search(r"vcpus: (\d+)", output)
-        if data:
-            return int(data.group(1))
+            # Try to find the vcpus setting first
+            data = re.search(r"vcpus: (\d+)", output)
+            if data:
+                vcpus = int(data.group(1))
+                self.logger.debug(f"Current vCPUs for VM {self.vm_id}: {vcpus}")
+                return vcpus
 
-        # Fallback to using cores if vcpus is not explicitly defined
-        self.logger.warning(f"'vcpus' not found for VM {self.vm_id}. Falling back to 'cores' value.")
-        return int(self._get_current_cores())
+            # Fallback to using cores if vcpus is not explicitly defined
+            self.logger.warning(f"'vcpus' not found for VM {self.vm_id}. Falling back to 'cores' value.")
+            return int(self._get_current_cores())
+
+        except Exception as e:
+            self.logger.error(f"Failed to get current vCPUs for VM {self.vm_id}: {str(e)}")
+            raise
 
     def _get_current_cores(self):
         """
         Retrieves the current number of CPU cores allocated to the VM.
         :return: Current core count
         """
-        command = f"qm config {self.vm_id}"
-        output = self.ssh_client.execute_command(command)
+        try:
+            command = f"qm config {self.vm_id}"
+            output = self.ssh_client.execute_command(command)
 
-        # Log output for debugging
-        self.logger.debug(f"Raw output from 'qm config {self.vm_id}':\n{output}")
+            # Log output for debugging
+            self.logger.debug(f"Raw output from 'qm config {self.vm_id}':\n{output}")
 
-        data = re.search(r"cores: (\d+)", output)
-        if data:
-            return int(data.group(1))
-        else:
-            raise ValueError(f"Could not determine CPU cores for VM {self.vm_id}")
+            data = re.search(r"cores: (\d+)", output)
+            if data:
+                cores = int(data.group(1))
+                self.logger.debug(f"Current CPU cores for VM {self.vm_id}: {cores}")
+                return cores
+            else:
+                raise ValueError(f"Could not determine CPU cores for VM {self.vm_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to get current cores for VM {self.vm_id}: {str(e)}")
+            raise
 
     def _set_vcpus(self, vcpus):
         """
         Sets the number of vCPUs for the VM.
         :param vcpus: Number of vCPUs to set
         """
-        command = f"qm set {self.vm_id} -vcpus {vcpus}"
-        self.ssh_client.execute_command(command)
+        try:
+            command = f"qm set {self.vm_id} -vcpus {vcpus}"
+            self.logger.debug(f"Executing command to set vCPUs: {command}")
+            self.ssh_client.execute_command(command)
+            self.logger.info(f"Successfully set vCPUs to {vcpus} for VM {self.vm_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to set vCPUs for VM {self.vm_id}: {str(e)}")
+            raise
 
     def _set_max_cores(self, cores):
         """
         Sets the maximum number of CPU cores for the VM.
         :param cores: Maximum number of CPU cores
         """
-        command = f"qm set {self.vm_id} -cores {cores}"
-        self.ssh_client.execute_command(command)
+        try:
+            command = f"qm set {self.vm_id} -cores {cores}"
+            self.logger.debug(f"Executing command to set cores: {command}")
+            self.ssh_client.execute_command(command)
+            self.logger.info(f"Successfully set cores to {cores} for VM {self.vm_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to set cores for VM {self.vm_id}: {str(e)}")
+            raise
 
     def _get_max_cores(self):
         """
         Retrieves the maximum number of CPU cores allowed for scaling.
         :return: Max core count from the configuration.
         """
-        return self.config['scaling_limits']['max_cores']
+        try:
+            max_cores = self.config['scaling_limits']['max_cores']
+            self.logger.debug(f"Max cores from config for VM {self.vm_id}: {max_cores}")
+            return max_cores
+        except KeyError:
+            self.logger.error("Missing 'max_cores' in scaling_limits configuration.")
+            raise
 
     def _get_min_cores(self):
         """
         Retrieves the minimum number of CPU cores allowed for scaling.
         :return: Min core count from the configuration.
         """
-        return self.config['scaling_limits']['min_cores']
+        try:
+            min_cores = self.config['scaling_limits']['min_cores']
+            self.logger.debug(f"Min cores from config for VM {self.vm_id}: {min_cores}")
+            return min_cores
+        except KeyError:
+            self.logger.error("Missing 'min_cores' in scaling_limits configuration.")
+            raise
 
     def _get_current_ram(self):
         """
         Retrieves the current RAM allocated to the VM in MB.
         :return: Current RAM allocation in MB
         """
-        command = f"qm config {self.vm_id}"
-        output = self.ssh_client.execute_command(command)
-        data = re.search(r"memory: (\d+)", output)
-        if data:
-            return int(data.group(1))
-        else:
-            raise ValueError(f"Could not determine RAM for VM {self.vm_id}")
+        try:
+            command = f"qm config {self.vm_id}"
+            output = self.ssh_client.execute_command(command)
+            data = re.search(r"memory: (\d+)", output)
+            if data:
+                current_ram = int(data.group(1))
+                self.logger.debug(f"Current RAM for VM {self.vm_id}: {current_ram} MB")
+                return current_ram
+            else:
+                raise ValueError(f"Could not determine RAM for VM {self.vm_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to get current RAM for VM {self.vm_id}: {str(e)}")
+            raise
 
     def _get_max_ram(self):
         """
         Retrieves the maximum RAM allowed for scaling (in MB).
         :return: Max RAM in MB from the configuration.
         """
-        return self.config['scaling_limits']['max_ram_mb']
+        try:
+            max_ram = self.config['scaling_limits']['max_ram_mb']
+            self.logger.debug(f"Max RAM from config for VM {self.vm_id}: {max_ram} MB")
+            return max_ram
+        except KeyError:
+            self.logger.error("Missing 'max_ram_mb' in scaling_limits configuration.")
+            raise
 
     def _get_min_ram(self):
         """
         Retrieves the minimum RAM allowed for scaling (in MB).
         :return: Min RAM in MB from the configuration.
         """
-        return self.config['scaling_limits']['min_ram_mb']
+        try:
+            min_ram = self.config['scaling_limits']['min_ram_mb']
+            self.logger.debug(f"Min RAM from config for VM {self.vm_id}: {min_ram} MB")
+            return min_ram
+        except KeyError:
+            self.logger.error("Missing 'min_ram_mb' in scaling_limits configuration.")
+            raise
+
+    def _try_set_ram(self, ram):
+        """
+        Tries to set the RAM for the VM and handles hotplug issues with retries.
+        :param ram: RAM value in MB to set
+        :return: True if successful, False otherwise
+        """
+        retries = 3
+        delay = 10  # seconds
+        for attempt in range(1, retries + 1):
+            try:
+                command = f"qm set {self.vm_id} -memory {ram}"
+                self.logger.debug(f"Executing command to set RAM: {command}")
+                self.ssh_client.execute_command(command)
+                self.logger.info(f"Successfully set RAM to {ram} MB for VM {self.vm_id}")
+                return True
+            except Exception as e:
+                self.logger.error(f"Attempt {attempt}: Failed to set RAM for VM {self.vm_id}: {str(e)}")
+                if attempt < retries:
+                    self.logger.info(f"Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    self.logger.error(f"All attempts to set RAM for VM {self.vm_id} have failed.")
+        return False
