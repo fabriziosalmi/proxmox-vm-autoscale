@@ -212,8 +212,8 @@ class VMResourceManager:
         :return: CPU usage as a percentage.
         """
         try:
-            # Example parsing logic: Adjust based on actual output format
-            cpu_match = re.search(r"cpu: (\d+)%", output)
+            # Update parsing logic based on the actual output format
+            cpu_match = re.search(r"cpu: (\d+\.?\d*)%", output)
             if cpu_match:
                 cpu_usage = float(cpu_match.group(1))
                 self.logger.debug(f"Parsed CPU usage for VM {self.vm_id}: {cpu_usage}%")
