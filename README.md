@@ -1,50 +1,50 @@
-# 🚀 VM Autoscale
+# 🚀 Proxmox VM Autoscale
 
 ## 🌟 Overview
-**Proxmox VM Autoscale** is a service that dynamically adjusts your Proxmox virtual machine (VM) resources (CPU cores, RAM) based on real-time metrics and user-defined thresholds. It ensures efficient use of available resources, dynamically scaling to optimize performance and resource availability.
+**Proxmox VM Autoscale** is a dynamic scaling service that automatically adjusts virtual machine (VM) resources (CPU cores and RAM) on your Proxmox Virtual Environment (VE) based on real-time metrics and user-defined thresholds. This solution helps ensure efficient resource usage, optimizing performance and resource availability dynamically.
 
-This service operates across multiple Proxmox hosts, connects via SSH, and can be easily installed and managed as a systemd service for seamless automation.
+The service supports multiple Proxmox hosts via SSH connections and can be easily installed and managed as a **systemd** service for seamless automation.
 
 > [!IMPORTANT]
-> You need to enable NUMA and Hotplug for CPU and Memory to scale VM resources:
-> - Enable NUMA: VM > Hardware > Processors > Enable NUMA ☑️
-> - Enable CPU Hotplug: VM > Options > Hotplug > CPU ☑️
-> - Enable Memory Hotplug: VM > Options > Hotplug > Memory ☑️
+> To enable scaling of VM resources, make sure NUMA and hotplug features are enabled:
+> - **Enable NUMA**: VM > Hardware > Processors > Enable NUMA ☑️
+> - **Enable CPU Hotplug**: VM > Options > Hotplug > CPU ☑️
+> - **Enable Memory Hotplug**: VM > Options > Hotplug > Memory ☑️
 
 ## ✨ Features
-- 🔄 **Auto-Scaling of VM CPU and RAM** based on real-time resource usage.
-- 🛠️ **Configuration-Driven** via an easy-to-edit YAML file.
-- 🌐 **Multiple Host Management** using SSH (supports password and key-based authentication).
-- 📲 **Gotify Notifications** for alerting whenever scaling actions are performed.
-- ⚙️ **Systemd Integration** for easy setup, management, and monitoring as a Linux service.
+- 🔄 **Auto-scaling of VM CPU and RAM** based on real-time resource metrics.
+- 🛠️ **Configuration-driven** setup using an easy-to-edit YAML file.
+- 🌐 **Multi-host support** via SSH (compatible with both password and key-based authentication).
+- 📲 **Gotify Notifications** for alerting you whenever scaling actions are performed.
+- ⚙️ **Systemd Integration** for effortless setup, management, and monitoring as a Linux service.
 
 ## 📋 Prerequisites
-- 🖥️ **Proxmox VE** installed on the target machines.
-- 🐍 **Python 3.x** installed on the Proxmox host(s).
-- 💻 Basic understanding of Proxmox `qm` commands and SSH is recommended.
+- 🖥️ **Proxmox VE** must be installed on the target hosts.
+- 🐍 **Python 3.x** should be installed on the Proxmox host(s).
+- 💻 Familiarity with Proxmox `qm` commands and SSH is recommended.
 
 > [!NOTE]
-> If You need to autoscale LXC containers resources on Proxmox hosts You will like [this project](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
+> To autoscale LXC containers on Proxmox hosts, you may be interested in [this related project](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
 
 ## 🚀 Quick Start
 
-To install **Proxmox VM Autoscale** easily, run the following `curl bash` command. This command will automatically clone the repository, execute the installation script, and set up the service for you.
+To install **Proxmox VM Autoscale**, execute the following `curl bash` command. This command will automatically clone the repository, execute the installation script, and set up the service for you:
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autoscale/main/install.sh)
 ```
 
-🎯 **This script will:**
+🎯 **This installation script will:**
 - Clone the repository into `/usr/local/bin/vm_autoscale`.
 - Copy all necessary files to the installation directory.
-- Install Python dependencies.
+- Install the required Python dependencies.
 - Set up a **systemd unit file** to manage the autoscaling service.
 
-
-> **💡 Note**: The service is enabled but not started automatically at the end of installation. Start it manually using the command below.
+> [!NOTE]
+> The service is enabled but not started automatically at the end of the installation. To start it manually, use the following command.
 
 > [!IMPORTANT]
-> VM hotplug feature in Proxmox requirements: to scale virtual machines on the fly please check the official [Proxmox documentation](https://pve.proxmox.com/wiki/Hotplug_(qemu_disk,nic,cpu,memory)) to meet the needed requirements.
+> Make sure to review the official [Proxmox documentation](https://pve.proxmox.com/wiki/Hotplug_(qemu_disk,nic,cpu,memory)) for the hotplug feature requirements to enable scaling virtual machines on the fly.
 
 ## ⚡ Usage
 
@@ -62,20 +62,20 @@ sudo systemctl stop vm_autoscale.service
 ```
 
 ### 🔍 Check the Status
-To check the status of the service:
+To view the service status:
 
 ```bash
 sudo systemctl status vm_autoscale.service
 ```
 
 ### 📜 Logs
-Logs are saved to `/var/log/vm_autoscale.log`. You can monitor the logs in real time using:
+Logs are saved to `/var/log/vm_autoscale.log`. You can monitor the logs in real-time using:
 
 ```bash
 tail -f /var/log/vm_autoscale.log
 ```
 
-or using `journalctl`:
+Or by using `journalctl`:
 
 ```bash
 journalctl -u vm_autoscale.service -f
@@ -83,7 +83,7 @@ journalctl -u vm_autoscale.service -f
 
 ## ⚙️ Configuration
 
-The configuration file (`config.yaml`) is located at `/usr/local/bin/vm_autoscale/config.yaml`. This file defines the scaling thresholds, resource limits, host details, and VM information.
+The configuration file (`config.yaml`) is located at `/usr/local/bin/vm_autoscale/config.yaml`. This file contains settings for scaling thresholds, resource limits, Proxmox hosts, and VM information.
 
 ### Example Configuration
 ```yaml
@@ -129,18 +129,18 @@ gotify:
 ```
 
 ### ⚙️ Configuration Details
-- **`scaling_thresholds`**: Defines the CPU and RAM usage percentages that will trigger scaling actions (e.g., when CPU > 80%, scale up).
-- **`scaling_limits`**: Specifies the **minimum** and **maximum** resources (cores, RAM) each VM can have.
-- **`proxmox_hosts`**: Contains the details of Proxmox hosts to connect to, including SSH credentials.
-- **`virtual_machines`**: A list of VMs that will be managed by the autoscale script. Allows per-VM customization of scaling.
-- **`logging`**: Specifies the logging level and log file path for tracking activity and debugging.
-- **`gotify`**: Configures **Gotify notifications** to alert when scaling actions are performed.
+- **`scaling_thresholds`**: Defines the CPU and RAM usage thresholds that trigger scaling actions (e.g., when CPU > 80%, scale up).
+- **`scaling_limits`**: Specifies the **minimum** and **maximum** resources (CPU cores and RAM) each VM can have.
+- **`proxmox_hosts`**: Contains the details of Proxmox hosts, including SSH credentials.
+- **`virtual_machines`**: Lists the VMs to be managed by the autoscaling script, allowing per-VM scaling customization.
+- **`logging`**: Specifies the logging level and log file path for activity tracking and debugging.
+- **`gotify`**: Configures **Gotify notifications** to send alerts when scaling actions are performed.
 
 ## 📲 Gotify Notifications
-Gotify is used for sending real-time notifications about scaling actions. You can configure Gotify in the `config.yaml` file:
+Gotify is used to send real-time notifications regarding scaling actions. Configure Gotify in the `config.yaml` file:
 - **`enabled`**: Set to `true` to enable notifications.
-- **`server_url`**: The URL of the Gotify server.
-- **`app_token`**: The authentication token for accessing Gotify.
+- **`server_url`**: URL of the Gotify server.
+- **`app_token`**: Authentication token for accessing Gotify.
 - **`priority`**: Notification priority level (1-10).
 
 ## 👨‍💻 Development
@@ -150,19 +150,18 @@ Gotify is used for sending real-time notifications about scaling actions. You ca
 - Required Python Packages: `paramiko`, `requests`, `PyYAML`
 
 ### 🐛 Running Manually
-To run the script manually for debugging or testing purposes:
+To run the script manually for debugging or testing:
 
 ```bash
 python3 /usr/local/bin/vm_autoscale/autoscale.py
 ```
 
 ### 🤝 Contributing
-Contributions are welcome! If you find a bug or have an idea for improvement, please submit an issue or a pull request on [GitHub](https://github.com/fabriziosalmi/proxmox-vm-autoscale).
+Contributions are welcome! If you encounter a bug or have suggestions for improvement, please submit an issue or a pull request on [GitHub](https://github.com/fabriziosalmi/proxmox-vm-autoscale).
 
-### Disclaimer
-
-> [!CAUTION]
-> I am not responsible for any potential damage or issues that may arise from using this tool. 
+### ⚠️ Disclaimer
+> **[!CAUTION]**
+> The author assumes no responsibility for any damage or issues that may arise from using this tool.
 
 ### 📜 License
-This project is licensed under the **MIT License**. See the LICENSE file for full details.
+This project is licensed under the **MIT License**. See the LICENSE file for complete details.
