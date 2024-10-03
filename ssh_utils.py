@@ -1,6 +1,5 @@
 import paramiko
 import logging
-import os
 
 class SSHClient:
     def __init__(self, host, user, password=None, key_path=None):
@@ -55,17 +54,20 @@ class SSHClient:
             exit_status = stdout.channel.recv_exit_status()
 
             if exit_status == 0:
-                output = stdout.read().decode('utf-8')
+                output = stdout.read().decode('utf-8').strip()
                 self.logger.info(f"Command executed successfully on {self.host}: {command}")
                 return output
             else:
-                error_message = stderr.read().decode('utf-8')
+                error_message = stderr.read().decode('utf-8').strip()
                 self.logger.error(f"Command failed on {self.host}: {command}\nError: {error_message}")
                 raise RuntimeError(f"Command execution failed: {error_message}")
 
         except Exception as e:
             self.logger.error(f"Error executing command on {self.host}: {str(e)}")
             raise
+
+        finally:
+            self.close()  # Ensure the connection is closed after command execution
 
     def close(self):
         """
