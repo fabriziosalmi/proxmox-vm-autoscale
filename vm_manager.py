@@ -208,21 +208,81 @@ class VMResourceManager:
     def _parse_cpu_usage(self, output):
         """
         Parses CPU usage information from the command output.
+        Attempts multiple parsing strategies if the initial one fails.
+        
         :param output: Output from the `qm status` command.
-        :return: CPU usage as a percentage.
+        :return: A tuple containing a success flag and CPU usage as a percentage.
+        """
+        # Attempt to parse CPU usage with multiple methods
+        parsing_methods = [
+            self._parse_cpu_usage_method_1,
+            self._parse_cpu_usage_method_2,
+            self._parse_cpu_usage_method_3
+        ]
+
+        for method in parsing_methods:
+            success, cpu_usage = method(output)
+            if success:
+                return (True, cpu_usage)  # Return on first successful parsing
+        
+        # If all methods fail, log the output and return failure
+        self.logger.warning(f"All parsing methods failed for output: {output}")
+        return (False, 0.0)  # Indicate failure with a default value
+
+    def _parse_cpu_usage_method_1(self, output):
+        """
+        First parsing method for CPU usage.
+        :return: A tuple containing a success flag and CPU usage as a percentage.
         """
         try:
-            # Update parsing logic based on the actual output format
-            cpu_match = re.search(r"cpu: (\d+\.?\d*)%", output)
+            cpu_match = re.search(r"cpu:\s*(\d+\.?\d*)%", output)
             if cpu_match:
                 cpu_usage = float(cpu_match.group(1))
-                self.logger.debug(f"Parsed CPU usage for VM {self.vm_id}: {cpu_usage}%")
-                return cpu_usage
-            self.logger.warning(f"Could not parse CPU usage information from output: {output}")
-            return 0.0
+                if not (0 <= cpu_usage <= 100):
+                    self.logger.warning(f"Invalid CPU usage detected: {cpu_usage}%.")
+                    return (False, 0.0)
+                self.logger.debug(f"Method 1 - Parsed CPU usage: {cpu_usage}%")
+                return (True, cpu_usage)
         except Exception as e:
-            self.logger.error(f"Error parsing CPU usage: {str(e)}")
-            return 0.0
+            self.logger.error(f"Method 1 - Error parsing CPU usage: {str(e)}")
+        return (False, 0.0)
+
+    def _parse_cpu_usage_method_2(self, output):
+        """
+        Second parsing method for CPU usage.
+        :return: A tuple containing a success flag and CPU usage as a percentage.
+        """
+        try:
+            cpu_match = re.search(r"CPU usage:\s*(\d+\.?\d*)%", output)  # Example of different format
+            if cpu_match:
+                cpu_usage = float(cpu_match.group(1))
+                if not (0 <= cpu_usage <= 100):
+                    self.logger.warning(f"Invalid CPU usage detected: {cpu_usage}%.")
+                    return (False, 0.0)
+                self.logger.debug(f"Method 2 - Parsed CPU usage: {cpu_usage}%")
+                return (True, cpu_usage)
+        except Exception as e:
+            self.logger.error(f"Method 2 - Error parsing CPU usage: {str(e)}")
+        return (False, 0.0)
+
+    def _parse_cpu_usage_method_3(self, output):
+        """
+        Third parsing method for CPU usage.
+        :return: A tuple containing a success flag and CPU usage as a percentage.
+        """
+        try:
+            cpu_match = re.search(r"CPU:\s*(\d+\.?\d*)", output)  # Example of a third format
+            if cpu_match:
+                cpu_usage = float(cpu_match.group(1))
+                if not (0 <= cpu_usage <= 100):
+                    self.logger.warning(f"Invalid CPU usage detected: {cpu_usage}%.")
+                    return (False, 0.0)
+                self.logger.debug(f"Method 3 - Parsed CPU usage: {cpu_usage}%")
+                return (True, cpu_usage)
+        except Exception as e:
+            self.logger.error(f"Method 3 - Error parsing CPU usage: {str(e)}")
+        return (False, 0.0)
+
 
     def _parse_ram_usage(self, output):
         """
