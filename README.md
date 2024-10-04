@@ -157,10 +157,10 @@ python3 /usr/local/bin/vm_autoscale/autoscale.py
 ```
 
 ### 🤝 Contributing
-Contributions are welcome! If you encounter a bug or have suggestions for improvement, please submit an issue or a pull request on [GitHub](https://github.com/fabriziosalmi/proxmox-vm-autoscale).
+Contributions are **more** than welcome! If you encounter a bug or have suggestions for improvement, please submit an issue or a pull request.
 
 ### ⚠️ Disclaimer
-> **[!CAUTION]**
+> [!CAUTION]
 > The author assumes no responsibility for any damage or issues that may arise from using this tool.
 
 ### 📜 License
