@@ -38,23 +38,27 @@ class VMResourceManager:
         try:
             if not self.is_vm_running():
                 return 0.0, 0.0  # Return zero usage if VM is not running
-
+    
             # Get the current status of the VM
             command = f"qm status {self.vm_id} --verbose"
             output = self.ssh_client.execute_command(command)
-
+    
             # Log the output for debugging purposes
             self.logger.debug(f"Raw output from 'qm status {self.vm_id} --verbose':\n{output}")
-
+    
             # Parse RAM and CPU usage from the output
+            success, cpu_usage = self._parse_cpu_usage(output)
+            if not success:
+                cpu_usage = 0.0  # Default to 0.0 if parsing fails
+            
             ram_usage = self._parse_ram_usage(output)
-            cpu_usage = self._parse_cpu_usage(output)
-
+    
             return cpu_usage, ram_usage
-
+    
         except Exception as e:
             self.logger.error(f"Failed to get resource usage for VM {self.vm_id}: {str(e)}")
             raise
+
 
     def can_scale(self):
         """
