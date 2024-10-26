@@ -202,9 +202,21 @@ class VMResourceManager:
         try:
             command = f"qm config {self.vm_id}"
             output = self.ssh_client.execute_command(command)
-            is_enabled = 'hotplug: memory' in output or 'hotplug: 1' in output
-            self.logger.debug(f"Memory hotplug enabled for VM {self.vm_id}: {is_enabled}")
-            return is_enabled
+
+            # Log the output for debugging purposes
+            self.logger.debug(f"VM {self.vm_id} config output: {output}")
+
+            # Check if 'memory' is part of the hotplug configuration
+            hotplug_match = re.search(r"hotplug:\s*(.*)", output)
+            if hotplug_match:
+                hotplug_options = hotplug_match.group(1).split(',')
+                if 'memory' in hotplug_options:
+                    self.logger.info(f"Memory hotplug is enabled for VM {self.vm_id}")
+                    return True
+                else:
+                    self.logger.warning(f"Memory hotplug is NOT enabled for VM {self.vm_id}")
+            return False
+
         except Exception as e:
             self.logger.error(f"Failed to check hotplug status for VM {self.vm_id}: {str(e)}")
             return False
