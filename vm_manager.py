@@ -19,24 +19,30 @@ class VMResourceManager:
                 command = f"qm status {self.vm_id} --verbose"
                 self.logger.debug(f"Executing command to check VM status: {command}")
                 output = self.ssh_client.execute_command(command)
-                self.logger.debug(f"Command output: {output.strip()}")
-    
-                if "status: running" in output.lower():
+                
+                # Handle tuple output
+                if isinstance(output, tuple):
+                    output = output[0] if output else ""
+                
+                output_str = str(output).strip()
+                self.logger.debug(f"Command output: {output_str}")
+        
+                if "status: running" in output_str.lower():
                     self.logger.info(f"VM {self.vm_id} is running.")
                     return True
-                elif "status:" in output.lower():
+                elif "status:" in output_str.lower():
                     self.logger.info(f"VM {self.vm_id} is not running.")
                     return False
                 else:
                     self.logger.warning(
-                        f"Unexpected output while checking VM status: {output.strip()}"
+                        f"Unexpected output while checking VM status: {output_str}"
                     )
             except Exception as e:
                 self.logger.warning(
                     f"Attempt {attempt}/{retries} failed to check VM status: {e}. Retrying..."
                 )
                 time.sleep(delay * attempt)  # Exponential backoff
-    
+        
         self.logger.error(
             f"Unable to determine status of VM {self.vm_id} after {retries} attempts."
         )
@@ -116,21 +122,26 @@ class VMResourceManager:
     def _parse_cpu_usage(self, output):
         """Parse CPU usage from VM status output."""
         try:
-            match = re.search(r"cpu:\s*(\d+\.?\d*)%", output)
+            if isinstance(output, tuple):
+                output = output[0] if output else ""
+            output_str = str(output).strip()
+            match = re.search(r"cpu:\s*(\d+\.?\d*)%", output_str)
             if match:
-                cpu_usage = float(match.group(1))
-                return cpu_usage
+                return float(match.group(1))
             self.logger.warning("CPU usage not found in output.")
             return 0.0
         except Exception as e:
             self.logger.error(f"Error parsing CPU usage: {e}")
             return 0.0
-
+    
     def _parse_ram_usage(self, output):
         """Parse RAM usage from VM status output."""
         try:
-            max_mem_match = re.search(r"maxmem:\s*(\d+)", output)
-            mem_match = re.search(r"mem:\s*(\d+)", output)
+            if isinstance(output, tuple):
+                output = output[0] if output else ""
+            output_str = str(output).strip()
+            max_mem_match = re.search(r"maxmem:\s*(\d+)", output_str)
+            mem_match = re.search(r"mem:\s*(\d+)", output_str)
             if max_mem_match and mem_match:
                 max_mem = int(max_mem_match.group(1))
                 mem = int(mem_match.group(1))
