@@ -13,18 +13,33 @@ class VMResourceManager:
         self.scale_cooldown = self.config.get("scale_cooldown", 300)  # Default to 5 minutes
 
     def is_vm_running(self, retries=3, delay=5):
-        """Check if the VM is running."""
-        for attempt in range(retries):
+        """Check if the VM is running with retries and improved error handling."""
+        for attempt in range(1, retries + 1):
             try:
                 command = f"qm status {self.vm_id} --verbose"
+                self.logger.debug(f"Executing command to check VM status: {command}")
                 output = self.ssh_client.execute_command(command)
-                if "status: running" in output:
+                self.logger.debug(f"Command output: {output.strip()}")
+    
+                if "status: running" in output.lower():
+                    self.logger.info(f"VM {self.vm_id} is running.")
                     return True
-                self.logger.info(f"VM {self.vm_id} is not running.")
-                return False
+                elif "status:" in output.lower():
+                    self.logger.info(f"VM {self.vm_id} is not running.")
+                    return False
+                else:
+                    self.logger.warning(
+                        f"Unexpected output while checking VM status: {output.strip()}"
+                    )
             except Exception as e:
-                self.logger.error(f"Failed to check VM status (attempt {attempt + 1}): {e}")
-                time.sleep(delay)
+                self.logger.warning(
+                    f"Attempt {attempt}/{retries} failed to check VM status: {e}. Retrying..."
+                )
+                time.sleep(delay * attempt)  # Exponential backoff
+    
+        self.logger.error(
+            f"Unable to determine status of VM {self.vm_id} after {retries} attempts."
+        )
         return False
 
     def get_resource_usage(self):
