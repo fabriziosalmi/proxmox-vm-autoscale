@@ -1,14 +1,14 @@
 #!/bin/bash
-
 # Install script for Proxmox VM Autoscale project
 # Repository: https://github.com/fabriziosalmi/proxmox-vm-autoscale
 
 # Variables
 INSTALL_DIR="/usr/local/bin/vm_autoscale"
+BACKUP_DIR="/etc/vm_autoscale"  # New separate backup directory
 REPO_URL="https://github.com/fabriziosalmi/proxmox-vm-autoscale"
 SERVICE_FILE="vm_autoscale.service"
 CONFIG_FILE="$INSTALL_DIR/config.yaml"
-BACKUP_FILE="$INSTALL_DIR/config.yaml.backup"
+BACKUP_FILE="$BACKUP_DIR/config.yaml.backup"  # Updated backup location
 REQUIREMENTS_FILE="$INSTALL_DIR/requirements.txt"
 PYTHON_CMD="/usr/bin/python3"
 
@@ -18,9 +18,15 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Create backup directory if it doesn't exist
+if [ ! -d "$BACKUP_DIR" ]; then
+    echo "Creating backup directory..."
+    mkdir -p "$BACKUP_DIR" || { echo "ERROR: Failed to create backup directory"; exit 1; }
+fi
+
 # Backup existing config.yaml if it exists
 if [ -f "$CONFIG_FILE" ]; then
-    echo "Backing up existing config.yaml to config.yaml.backup..."
+    echo "Backing up existing config.yaml to $BACKUP_FILE..."
     cp "$CONFIG_FILE" "$BACKUP_FILE" || { echo "ERROR: Failed to backup config.yaml"; exit 1; }
 fi
 
@@ -39,6 +45,12 @@ fi
 
 git clone "$REPO_URL" "$INSTALL_DIR" || { echo "ERROR: Failed to clone the repository from $REPO_URL"; exit 1; }
 
+# Restore backup if it exists
+if [ -f "$BACKUP_FILE" ]; then
+    echo "Restoring config.yaml from backup..."
+    cp "$BACKUP_FILE" "$CONFIG_FILE" || { echo "ERROR: Failed to restore config.yaml from backup"; exit 1; }
+fi
+
 # Install Python dependencies
 if [ -f "$REQUIREMENTS_FILE" ]; then
     echo "Installing Python dependencies..."
@@ -50,6 +62,7 @@ fi
 # Set permissions
 echo "Setting permissions for installation directory..."
 chmod -R 755 "$INSTALL_DIR" || { echo "ERROR: Failed to set permissions on $INSTALL_DIR"; exit 1; }
+chmod -R 755 "$BACKUP_DIR" || { echo "ERROR: Failed to set permissions on $BACKUP_DIR"; exit 1; }
 
 # Create the systemd service file
 echo "Creating the systemd service file..."
@@ -83,3 +96,4 @@ systemctl enable "$SERVICE_FILE" || { echo "ERROR: Failed to enable the service"
 echo "Installation complete. The service is enabled but not started."
 echo "To start the service, use: sudo systemctl start $SERVICE_FILE"
 echo "Logs can be monitored using: journalctl -u $SERVICE_FILE -f"
+echo "Config backup location: $BACKUP_FILE"
