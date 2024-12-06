@@ -42,7 +42,7 @@ logger = logging.getLogger("vm_autoscale")
 def send_notification(message, priority=5):
     if config.get('gotify', {}).get('enabled', False):
         send_gotify_notification(message, priority)
-    elif config.get('smtp', {}).get('enabled', False):
+    elif config.get('alerts', {}).get('email_enabled', False):  # Changed from smtp to alerts
         send_smtp_notification(message)
     else:
         logger.warning(f"No notification method is enabled. Message: {message}")
@@ -73,21 +73,23 @@ def send_gotify_notification(message, priority=5):
         logger.error(f"Failed to send Gotify notification: {e}")
 
 def send_smtp_notification(message):
-    smtp_config = config.get('smtp', {})
-    smtp_host = smtp_config.get('server')
-    smtp_port = smtp_config.get('port', 587)
-    smtp_user = smtp_config.get('username')
-    smtp_pass = smtp_config.get('password')
-    from_email = smtp_config.get('from_email')
-    to_emails = smtp_config.get('to_emails', [])
+    alerts_config = config.get('alerts', {})
+    smtp_host = alerts_config.get('smtp_server')
+    smtp_port = alerts_config.get('smtp_port', 587)
+    smtp_user = alerts_config.get('smtp_user')
+    smtp_pass = alerts_config.get('smtp_password')
+    recipient = alerts_config.get('email_recipient')
 
-    if not all([smtp_host, smtp_user, smtp_pass, from_email, to_emails]):
-        logger.error("Incomplete SMTP configuration.")
+    # Handle single email or list of emails
+    to_emails = [recipient] if isinstance(recipient, str) else recipient
+
+    if not all([smtp_host, smtp_user, smtp_pass, to_emails]):
+        logger.error("Incomplete email alerts configuration.")
         return
 
     try:
         msg = MIMEMultipart()
-        msg['From'] = from_email
+        msg['From'] = smtp_user  # Use smtp_user as the from address if no specific from_email is provided
         msg['To'] = ", ".join(to_emails)
         msg['Subject'] = "VM Autoscale Alert"
         msg.attach(MIMEText(message, 'plain'))
@@ -95,12 +97,12 @@ def send_smtp_notification(message):
         with smtplib.SMTP(smtp_host, smtp_port) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
-            server.sendmail(from_email, to_emails, msg.as_string())
+            server.sendmail(smtp_user, to_emails, msg.as_string())
 
-        logger.info("SMTP notification sent successfully")
+        logger.info("Email notification sent successfully")
     except Exception as e:
-        logger.error(f"Failed to send SMTP notification: {e}")
-
+        logger.error(f"Failed to send email notification: {e}")
+        
 # Main autoscaling logic
 def process_vm(host, vm):
     ssh_client = None
