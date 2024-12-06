@@ -12,6 +12,13 @@ class VMResourceManager:
         self.last_scale_time = 0
         self.scale_cooldown = self.config.get("scale_cooldown", 300)  # Default to 5 minutes
 
+    def _get_command_output(self, output):
+        """Helper method to properly handle command output that might be a tuple."""
+        if isinstance(output, tuple):
+            # Assuming the first element contains the stdout
+            return str(output[0]).strip() if output and output[0] is not None else ""
+        return str(output).strip() if output is not None else ""
+
     def is_vm_running(self, retries=3, delay=5):
         """Check if the VM is running with retries and improved error handling."""
         for attempt in range(1, retries + 1):
@@ -19,12 +26,7 @@ class VMResourceManager:
                 command = f"qm status {self.vm_id} --verbose"
                 self.logger.debug(f"Executing command to check VM status: {command}")
                 output = self.ssh_client.execute_command(command)
-                
-                # Handle tuple output
-                if isinstance(output, tuple):
-                    output = output[0] if output else ""
-                
-                output_str = str(output).strip()
+                output_str = self._get_command_output(output)
                 self.logger.debug(f"Command output: {output_str}")
         
                 if "status: running" in output_str.lower():
@@ -122,9 +124,7 @@ class VMResourceManager:
     def _parse_cpu_usage(self, output):
         """Parse CPU usage from VM status output."""
         try:
-            if isinstance(output, tuple):
-                output = output[0] if output else ""
-            output_str = str(output).strip()
+            output_str = self._get_command_output(output)
             match = re.search(r"cpu:\s*(\d+\.?\d*)%", output_str)
             if match:
                 return float(match.group(1))
@@ -137,9 +137,7 @@ class VMResourceManager:
     def _parse_ram_usage(self, output):
         """Parse RAM usage from VM status output."""
         try:
-            if isinstance(output, tuple):
-                output = output[0] if output else ""
-            output_str = str(output).strip()
+            output_str = self._get_command_output(output)
             max_mem_match = re.search(r"maxmem:\s*(\d+)", output_str)
             mem_match = re.search(r"mem:\s*(\d+)", output_str)
             if max_mem_match and mem_match:
@@ -157,7 +155,8 @@ class VMResourceManager:
         try:
             command = f"qm config {self.vm_id}"
             output = self.ssh_client.execute_command(command)
-            match = re.search(r"vcpus:\s*(\d+)", output)
+            output_str = self._get_command_output(output)
+            match = re.search(r"vcpus:\s*(\d+)", output_str)
             return int(match.group(1)) if match else 1
         except Exception as e:
             self.logger.error(f"Failed to retrieve vCPUs: {e}")
@@ -168,7 +167,8 @@ class VMResourceManager:
         try:
             command = f"qm config {self.vm_id}"
             output = self.ssh_client.execute_command(command)
-            match = re.search(r"cores:\s*(\d+)", output)
+            output_str = self._get_command_output(output)
+            match = re.search(r"cores:\s*(\d+)", output_str)
             return int(match.group(1)) if match else 1
         except Exception as e:
             self.logger.error(f"Failed to retrieve CPU cores: {e}")
@@ -187,7 +187,8 @@ class VMResourceManager:
         try:
             command = f"qm config {self.vm_id}"
             output = self.ssh_client.execute_command(command)
-            match = re.search(r"memory:\s*(\d+)", output)
+            output_str = self._get_command_output(output)
+            match = re.search(r"memory:\s*(\d+)", output_str)
             return int(match.group(1)) if match else 512
         except Exception as e:
             self.logger.error(f"Failed to retrieve current RAM: {e}")
@@ -205,7 +206,8 @@ class VMResourceManager:
         """Set the RAM for the VM."""
         try:
             command = f"qm set {self.vm_id} -memory {ram}"
-            self.ssh_client.execute_command(command)
+            output = self.ssh_client.execute_command(command)
+            self._get_command_output(output)  # Process output to catch any errors
             self.logger.info(f"RAM set to {ram} MB for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set RAM to {ram}: {e}")
@@ -229,7 +231,8 @@ class VMResourceManager:
         """Set the CPU cores for the VM."""
         try:
             command = f"qm set {self.vm_id} -cores {cores}"
-            self.ssh_client.execute_command(command)
+            output = self.ssh_client.execute_command(command)
+            self._get_command_output(output)  # Process output to catch any errors
             self.logger.info(f"CPU cores set to {cores} for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set CPU cores to {cores}: {e}")
@@ -239,7 +242,8 @@ class VMResourceManager:
         """Set the vCPUs for the VM."""
         try:
             command = f"qm set {self.vm_id} -vcpus {vcpus}"
-            self.ssh_client.execute_command(command)
+            output = self.ssh_client.execute_command(command)
+            self._get_command_output(output)  # Process output to catch any errors
             self.logger.info(f"vCPUs set to {vcpus} for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set vCPUs to {vcpus}: {e}")
