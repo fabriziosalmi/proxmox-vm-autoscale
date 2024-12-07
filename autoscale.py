@@ -45,95 +45,107 @@ class NotificationManager:
         if not notification_enabled:
             self.logger.warning("No notification method is enabled in configuration")
 
-    def retry_on_error(max_attempts: int = 3, delay: float = 1):
-        """Decorator for retry logic on notification failures."""
-        def decorator(func):
-            @wraps(func)
-            def wrapper(self, *args, **kwargs):
-                last_exception = None
-                for attempt in range(max_attempts):
-                    try:
-                        return func(self, *args, **kwargs)
-                    except Exception as e:
-                        last_exception = e
-                        if attempt < max_attempts - 1:
-                            self.logger.warning(f"Attempt {attempt + 1} failed, retrying in {delay} seconds: {e}")
-                            time.sleep(delay)
-                self.logger.error(f"Failed after {max_attempts} attempts: {last_exception}")
-                raise last_exception
-            return wrapper
-        return decorator
+    def _format_message(self, message: Union[str, tuple, Any]) -> str:
+        """Format message to ensure it's a string."""
+        if isinstance(message, tuple):
+            # If it's a tuple, join non-empty parts
+            return ' '.join(str(part) for part in message if part)
+        elif isinstance(message, str):
+            return message
+        else:
+            return str(message)
 
-    @retry_on_error()
+    @retry_on_error(max_attempts=3, delay=1)
     def send_gotify_notification(self, message: str, priority: Optional[int] = None) -> None:
         """Send notification via Gotify with retry logic."""
-        gotify_config = self.config.get('gotify', {})
-        server_url = gotify_config['server_url']
-        app_token = gotify_config['app_token']
-        final_priority = priority or gotify_config.get('priority', 5)
+        try:
+            gotify_config = self.config.get('gotify', {})
+            server_url = gotify_config['server_url'].rstrip('/')  # Remove trailing slash if present
+            app_token = gotify_config['app_token']
+            final_priority = priority or gotify_config.get('priority', 5)
 
-        response = requests.post(
-            f"{server_url}/message",
-            data={
-                "title": "VM Autoscale Alert",
-                "message": message,
-                "priority": final_priority
-            },
-            headers={"Authorization": f"Bearer {app_token}"},
-            timeout=10  # Add timeout
-        )
-        response.raise_for_status()
-        self.logger.info("Gotify notification sent successfully")
+            formatted_message = self._format_message(message)
 
-    @retry_on_error()
+            response = requests.post(
+                f"{server_url}/message",
+                data={
+                    "title": "VM Autoscale Alert",
+                    "message": formatted_message,
+                    "priority": final_priority
+                },
+                headers={"Authorization": f"Bearer {app_token}"},
+                timeout=10
+            )
+            response.raise_for_status()
+            self.logger.info("Gotify notification sent successfully")
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Failed to send Gotify notification: {str(e)}")
+            raise
+
+    @retry_on_error(max_attempts=3, delay=1)
     def send_smtp_notification(self, message: str) -> None:
         """Send notification via email with retry logic."""
-        alerts_config = self.config['alerts']
-        smtp_config = {
-            'host': alerts_config['smtp_server'],
-            'port': alerts_config.get('smtp_port', 587),
-            'user': alerts_config['smtp_user'],
-            'password': alerts_config['smtp_password'],
-            'recipient': alerts_config['email_recipient']
-        }
+        try:
+            alerts_config = self.config['alerts']
+            smtp_config = {
+                'host': alerts_config['smtp_server'],
+                'port': alerts_config.get('smtp_port', 587),
+                'user': alerts_config['smtp_user'],
+                'password': alerts_config['smtp_password'],
+                'recipient': alerts_config['email_recipient']
+            }
 
-        # Handle recipient format
-        to_emails = [smtp_config['recipient']] if isinstance(smtp_config['recipient'], str) else smtp_config['recipient']
-        if not all(isinstance(email, str) for email in to_emails):
-            raise ValueError("Invalid email format in recipients")
+            to_emails = [smtp_config['recipient']] if isinstance(smtp_config['recipient'], str) else smtp_config['recipient']
+            if not all(isinstance(email, str) for email in to_emails):
+                raise ValueError("Invalid email format in recipients")
 
-        msg = MIMEMultipart()
-        msg['From'] = smtp_config['user']
-        msg['To'] = ", ".join(to_emails)
-        msg['Subject'] = "VM Autoscale Alert"
-        msg.attach(MIMEText(message, 'plain'))
+            formatted_message = self._format_message(message)
 
-        with smtplib.SMTP(smtp_config['host'], smtp_config['port']) as server:
-            server.starttls()
-            server.login(smtp_config['user'], smtp_config['password'])
-            server.sendmail(smtp_config['user'], to_emails, msg.as_string())
-        
-        self.logger.info("Email notification sent successfully")
+            msg = MIMEMultipart()
+            msg['From'] = smtp_config['user']
+            msg['To'] = ", ".join(to_emails)
+            msg['Subject'] = "VM Autoscale Alert"
+            msg.attach(MIMEText(formatted_message, 'plain'))
 
-    def send_notification(self, message: str, priority: Optional[int] = None) -> None:
+            with smtplib.SMTP(smtp_config['host'], smtp_config['port']) as server:
+                server.starttls()
+                server.login(smtp_config['user'], smtp_config['password'])
+                server.sendmail(smtp_config['user'], to_emails, msg.as_string())
+            
+            self.logger.info("Email notification sent successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to send email notification: {str(e)}")
+            raise
+
+    def send_notification(self, message: Union[str, tuple, Any], priority: Optional[int] = None) -> None:
         """Send notification through configured channels."""
         sent = False
+        errors = []
+        formatted_message = self._format_message(message)
+
         if self.config.get('gotify', {}).get('enabled', False):
             try:
-                self.send_gotify_notification(message, priority)
+                self.send_gotify_notification(formatted_message, priority)
                 sent = True
             except Exception as e:
-                self.logger.error(f"Failed to send Gotify notification: {e}")
+                error_msg = f"Failed to send Gotify notification: {str(e)}"
+                errors.append(error_msg)
+                self.logger.error(error_msg)
 
         if self.config.get('alerts', {}).get('email_enabled', False):
             try:
-                self.send_smtp_notification(message)
+                self.send_smtp_notification(formatted_message)
                 sent = True
             except Exception as e:
-                self.logger.error(f"Failed to send email notification: {e}")
+                error_msg = f"Failed to send email notification: {str(e)}"
+                errors.append(error_msg)
+                self.logger.error(error_msg)
 
         if not sent:
-            self.logger.warning(f"Failed to send notification through any channel. Message: {message}")
+            error_summary = f" Errors: {'; '.join(errors)}" if errors else ""
+            self.logger.warning(
+                f"Failed to send notification through any channel. Message: {formatted_message}.{error_summary}"
+            )
 
 class VMAutoscaler:
     def __init__(self, config_path: str, logging_config_path: Optional[str] = None):
