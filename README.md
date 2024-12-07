@@ -43,6 +43,10 @@ bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autosc
 > [!NOTE]
 > The service is enabled but not started automatically at the end of the installation. To start it manually, use the following command.
 
+```bash
+systemctl start vm_autoscale.service
+```
+
 > [!IMPORTANT]
 > Make sure to review the official [Proxmox documentation](https://pve.proxmox.com/wiki/Hotplug_(qemu_disk,nic,cpu,memory)) for the hotplug feature requirements to enable scaling virtual machines on the fly.
 
@@ -52,20 +56,20 @@ bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autosc
 To **start** the autoscaling service:
 
 ```bash
-sudo systemctl start vm_autoscale.service
+systemctl start vm_autoscale.service
 ```
 
 To **stop** the service:
 
 ```bash
-sudo systemctl stop vm_autoscale.service
+systemctl stop vm_autoscale.service
 ```
 
 ### 🔍 Check the Status
 To view the service status:
 
 ```bash
-sudo systemctl status vm_autoscale.service
+systemctl status vm_autoscale.service
 ```
 
 ### 📜 Logs
