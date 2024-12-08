@@ -55,7 +55,6 @@ class NotificationManager:
         else:
             return str(message)
 
-    @retry_on_error(max_attempts=3, delay=1)
     def send_gotify_notification(self, message: str, priority: Optional[int] = None) -> None:
         """Send notification via Gotify with retry logic."""
         try:
@@ -82,7 +81,6 @@ class NotificationManager:
             self.logger.error(f"Failed to send Gotify notification: {str(e)}")
             raise
 
-    @retry_on_error(max_attempts=3, delay=1)
     def send_smtp_notification(self, message: str) -> None:
         """Send notification via email with retry logic."""
         try:
