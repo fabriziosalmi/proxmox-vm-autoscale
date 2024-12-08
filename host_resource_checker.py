@@ -24,11 +24,12 @@ class HostResourceChecker:
         try:
             # Command to retrieve host resource status
             command = "pvesh get /nodes/$(hostname)/status --output-format json"
-            output, error = self.ssh_client.execute_command(command)  # Properly unpack the tuple
+            output, error, exit_status = self.ssh_client.execute_command(command)  # Properly unpack the tuple
             
             # Debug logging
             self.logger.debug(f"Raw command output: {output}")
             self.logger.debug(f"Error output: {error}")
+            self.logger.debug(f"Exit status: {exit_status}")
             
             # Check for error output
             if error:
