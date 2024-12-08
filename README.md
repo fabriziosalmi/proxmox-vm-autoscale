@@ -23,6 +23,11 @@ The service supports multiple Proxmox hosts via SSH connections and can be easil
 - 🐍 **Python 3.x** should be installed on the Proxmox host(s).
 - 💻 Familiarity with Proxmox `qm` commands and SSH is recommended.
 
+## 🤝 Contributing
+Contributions are **more** than welcome! If you encounter a bug or have suggestions for improvement, please [open an issue](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/new/choose) or submit a pull request.
+
+Code improvements by: [Specimen67](https://github.com/Specimen67), [brianread108](https://github.com/brianread108)
+
 > [!NOTE]
 > To autoscale LXC containers on Proxmox hosts, you may be interested in [this related project](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
 
@@ -159,11 +164,6 @@ To run the script manually for debugging or testing:
 ```bash
 python3 /usr/local/bin/vm_autoscale/autoscale.py
 ```
-
-### 🤝 Contributing
-Contributions are **more** than welcome! If you encounter a bug or have suggestions for improvement, please submit an issue or a pull request.
-
-Code improvements by: [Specimen67](https://github.com/Specimen67), [brianread108](https://github.com/brianread108)
 
 ### ⚠️ Disclaimer
 > [!CAUTION]
