@@ -163,7 +163,7 @@ python3 /usr/local/bin/vm_autoscale/autoscale.py
 ### 🤝 Contributing
 Contributions are **more** than welcome! If you encounter a bug or have suggestions for improvement, please submit an issue or a pull request.
 
-Code improvements by: [brianread108](https://github.com/brianread108)
+Code improvements by: [Specimen67](https://github.com/Specimen67), [brianread108](https://github.com/brianread108)
 
 ### ⚠️ Disclaimer
 > [!CAUTION]
