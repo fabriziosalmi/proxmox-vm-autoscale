@@ -37,7 +37,7 @@ class NotificationManager:
         if self.config.get('alerts', {}).get('email_enabled', False):
             notification_enabled = True
             alerts_config = self.config.get('alerts', {})
-            required_fields = ['smtp_server', 'smtp_user', 'smtp_password', 'email_recipient']
+            required_fields = ['smtp_server', 'smtp_user', 'email_recipient']
             missing_fields = [field for field in required_fields if not alerts_config.get(field)]
             if missing_fields:
                 raise ConfigurationError(f"Email alerts are enabled but missing configuration: {', '.join(missing_fields)}")
