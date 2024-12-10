@@ -107,7 +107,8 @@ class NotificationManager:
 
             with smtplib.SMTP(smtp_config['host'], smtp_config['port']) as server:
                 server.starttls()
-                server.login(smtp_config['user'], smtp_config['password'])
+                if smtp_config['password']:
+                    server.login(smtp_config['user'], smtp_config['password'])
                 server.sendmail(smtp_config['user'], to_emails, msg.as_string())
             
             self.logger.info("Email notification sent successfully")

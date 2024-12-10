@@ -55,11 +55,22 @@ class VMResourceManager:
         try:
             if not self.is_vm_running():
                 return 0.0, 0.0
-
-            command = f"qm status {self.vm_id} --verbose"
+            #command = f"qm status {self.vm_id} --verbose"
+            # Updated command  - this might well be refinable to simpler and faster.
+            vmid = self.vm_id
+            node = self.config.get('host', 'pve')
+            command = textwrap.dedent(f"""\
+                VMID={vmid};
+                NODE={node};
+                pvesh get /nodes/$NODE/qemu/$VMID/status/current >/dev/null 2>&1 && \\
+                PID=$(pgrep -f "kvm.*-id $VMID") && [ -n "$PID" ] && \\
+                read CPU MEM <<<$(ps -p $PID -o %cpu=,%mem=) && \\
+                echo "CPU Usage for VM $VMID: $CPU%, Memory Usage: $MEM%" || \\
+                echo "VM $VMID is not running or PID not found"
+                """)
             output = self.ssh_client.execute_command(command)
+            # example output: "CPU Usage for VM 101: 8.4%, Memory Usage: 19.4%"
             self.logger.debug(f"VM status output: {output}")
-
             cpu_usage = self._parse_cpu_usage(output)
             ram_usage = self._parse_ram_usage(output)
             return cpu_usage, ram_usage
@@ -125,7 +136,8 @@ class VMResourceManager:
         """Parse CPU usage from VM status output."""
         try:
             output_str = self._get_command_output(output)
-            match = re.search(r"cpu:\s*(\d+\.?\d*)%", output_str)
+            #match = re.search(r"cpu:\s*(\d+\.?\d*)%", output_str)
+            match = re.search(r"CPU Usage for VM \d+: (\d+(?:\.\d+)?)%", output_str)
             if match:
                 return float(match.group(1))
             self.logger.warning("CPU usage not found in output.")
@@ -138,12 +150,15 @@ class VMResourceManager:
         """Parse RAM usage from VM status output."""
         try:
             output_str = self._get_command_output(output)
-            max_mem_match = re.search(r"maxmem:\s*(\d+)", output_str)
-            mem_match = re.search(r"mem:\s*(\d+)", output_str)
-            if max_mem_match and mem_match:
-                max_mem = int(max_mem_match.group(1))
-                mem = int(mem_match.group(1))
-                return (mem / max_mem) * 100 if max_mem > 0 else 0.0
+            match  = re.search(r"Memory Usage: (\d+(?:\.\d+)?)%", output_str)
+            #max_mem_match = re.search(r"maxmem:\s*(\d+)", output_str)
+            #mem_match = re.search(r"mem:\s*(\d+)", output_str)
+            #if max_mem_match and mem_match:
+            #    max_mem = int(max_mem_match.group(1))
+            #    mem = int(mem_match.group(1))
+            #    return (mem / max_mem) * 100 if max_mem > 0 else 0.0
+            if match:
+                return float(match.group(1))
             self.logger.warning("RAM usage not found in output.")
             return 0.0
         except Exception as e:
