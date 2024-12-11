@@ -238,17 +238,17 @@ class VMAutoscaler:
         """Handle CPU scaling decisions."""
         thresholds = self.config['scaling_thresholds']['cpu']
         if cpu_usage > thresholds['high']:
-            vm_manager.scale_cpu('up')
-            self.notification_manager.send_notification(
-                f"Scaled up CPU for VM {vm_id} due to high usage ({cpu_usage}%).",
-                priority=7
-            )
+            if vm_manager.scale_cpu('up'):
+                self.notification_manager.send_notification(
+                    f"Scaled up CPU for VM {vm_id} due to high usage ({cpu_usage}%).",
+                    priority=7
+                )
         elif cpu_usage < thresholds['low']:
-            vm_manager.scale_cpu('down')
-            self.notification_manager.send_notification(
-                f"Scaled down CPU for VM {vm_id} due to low usage ({cpu_usage}%).",
-                priority=5
-            )
+            if vm_manager.scale_cpu('down'):
+                self.notification_manager.send_notification(
+                    f"Scaled down CPU for VM {vm_id} due to low usage ({cpu_usage}%).",
+                    priority=5
+                )
 
     def _handle_ram_scaling(self, vm_manager: VMResourceManager, vm_id: int, ram_usage: float) -> None:
         """Handle RAM scaling decisions."""

@@ -89,13 +89,16 @@ class VMResourceManager:
             min_cores = self._get_min_cores()
             current_vcpus = self._get_current_vcpus()
 
+            self.last_scale_time = time.time()
             if direction == "up" and current_cores < max_cores:
                 self._scale_cpu_up(current_cores, current_vcpus)
+                return True
             elif direction == "down" and current_cores > min_cores:
                 self._scale_cpu_down(current_cores, current_vcpus)
+                return True
             else:
                 self.logger.info("No CPU scaling required.")
-            self.last_scale_time = time.time()
+                return False
         except Exception as e:
             self.logger.error(f"Failed to scale CPU: {e}")
             raise
