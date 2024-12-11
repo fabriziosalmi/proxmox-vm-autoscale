@@ -26,10 +26,11 @@ The service supports multiple Proxmox hosts via SSH connections and can be easil
 ## 🤝 Contributing
 Contributions are **more** than welcome! If you encounter a bug or have suggestions for improvement, please [open an issue](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/new/choose) or submit a pull request.
 
-Code improvements by: [Specimen67](https://github.com/Specimen67), [brianread108](https://github.com/brianread108)
+### Contributors
+Code improvements by: **[Specimen67](https://github.com/Specimen67)**, **[brianread108](https://github.com/brianread108)**
 
-> [!NOTE]
-> To autoscale LXC containers on Proxmox hosts, you may be interested in [this related project](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
+### Want to scale LXC containers instead of VM on Proxmox hosts?
+To autoscale LXC containers on Proxmox hosts, you may be interested in [this related project](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
 
 ## 🚀 Quick Start
 
