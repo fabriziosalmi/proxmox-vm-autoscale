@@ -58,19 +58,10 @@ class VMResourceManager:
             #command = f"qm status {self.vm_id} --verbose"
             # Updated command  - this might well be refinable to simpler and faster.
             vmid = self.vm_id
-            node = self.config.get('host', 'pve')
-            command = textwrap.dedent(f"""\
-                VMID={vmid};
-                NODE={node};
-                pvesh get /nodes/$NODE/qemu/$VMID/status/current >/dev/null 2>&1 && \\
-                PID=$(pgrep -f "kvm.*-id $VMID") && [ -n "$PID" ] && \\
-                read CPU MEM <<<$(ps -p $PID -o %cpu=,%mem=) && \\
-                echo "CPU Usage for VM $VMID: $CPU%, Memory Usage: $MEM%" || \\
-                echo "VM $VMID is not running or PID not found"
-                """)
+            command = f"pvesh get /cluster/resources | grep 'qemu/{vmid}' | awk -F '│' '{{print $6, $15, $16}}'"
             output = self.ssh_client.execute_command(command)
-            # example output: "CPU Usage for VM 101: 8.4%, Memory Usage: 19.4%"
-            self.logger.debug(f"VM status output: {output}")
+            # example output: "  3.17%     5.00 GiB     3.82 GiB "
+            self.logger.info(f"VM status output: {output}")
             cpu_usage = self._parse_cpu_usage(output)
             ram_usage = self._parse_ram_usage(output)
             return cpu_usage, ram_usage
@@ -136,31 +127,68 @@ class VMResourceManager:
         """Parse CPU usage from VM status output."""
         try:
             output_str = self._get_command_output(output)
-            #match = re.search(r"cpu:\s*(\d+\.?\d*)%", output_str)
-            match = re.search(r"CPU Usage for VM \d+: (\d+(?:\.\d+)?)%", output_str)
-            if match:
-                return float(match.group(1))
+            percentage_cpu_match = re.search(r"^\s*(\d+(?:\.\d+)?)%", output_str)
+            if percentage_cpu_match:
+                return float(percentage_cpu_match.group(1))
             self.logger.warning("CPU usage not found in output.")
             return 0.0
         except Exception as e:
             self.logger.error(f"Error parsing CPU usage: {e}")
             return 0.0
     
+    def _convert_to_gib(self, value, unit):
+        """ Converts memory units to GiB. """
+        unit = unit.lower()
+        if unit == 'gib':
+            return value
+        elif unit == 'mib':
+            return value / 1024  # Convert MiB to GiB
+        else:
+            self.logger.warning(f"Unknown memory unit '{unit}'. Assuming GiB.")
+            return value  # Assume GiB if unit is unknown
+
     def _parse_ram_usage(self, output):
-        """Parse RAM usage from VM status output."""
+        """ Parses RAM usage from VM status output. """
         try:
             output_str = self._get_command_output(output)
-            match  = re.search(r"Memory Usage: (\d+(?:\.\d+)?)%", output_str)
-            #max_mem_match = re.search(r"maxmem:\s*(\d+)", output_str)
-            #mem_match = re.search(r"mem:\s*(\d+)", output_str)
-            #if max_mem_match and mem_match:
-            #    max_mem = int(max_mem_match.group(1))
-            #    mem = int(mem_match.group(1))
-            #    return (mem / max_mem) * 100 if max_mem > 0 else 0.0
-            if match:
-                return float(match.group(1))
-            self.logger.warning("RAM usage not found in output.")
-            return 0.0
+            self.logger.debug(f"Processing output: '{output_str}'")
+            # ----------------------------
+            # Extract Memory Values
+            # ----------------------------
+            # Pattern Explanation:
+            # - (\d+(?:\.\d+)?)\s+(GiB|MiB) : Capture first memory value and its unit
+            # - \s+                         : Match one or more whitespace characters
+            # - (\d+(?:\.\d+)?)\s+(GiB|MiB) : Capture second memory value and its unit
+            pattern_memory = r"(\d+(?:\.\d+)?)\s+(GiB|MiB)\s+(\d+(?:\.\d+)?)\s+(GiB|MiB)"
+            memory_match = re.search(pattern_memory, output_str)
+            if memory_match:
+                max_mem_value = float(memory_match.group(1))
+                max_mem_unit = memory_match.group(2)
+                used_mem_value = float(memory_match.group(3))
+                used_mem_unit = memory_match.group(4)
+
+                self.logger.debug(f"Extracted Max Memory: {max_mem_value} {max_mem_unit}")
+                self.logger.debug(f"Extracted Used Memory: {used_mem_value} {used_mem_unit}")
+
+                # Convert memory values to GiB
+                max_mem_gib = self._convert_to_gib(max_mem_value, max_mem_unit)
+                used_mem_gib = self._convert_to_gib(used_mem_value, used_mem_unit)
+
+                self.logger.debug(f"Converted Max Memory: {max_mem_gib} GiB")
+                self.logger.debug(f"Converted Used Memory: {used_mem_gib} GiB")
+
+                if max_mem_gib == 0:
+                    self.logger.warning("Maximum memory is zero. Cannot compute usage percentage.")
+                    return 0.0
+
+                # Calculate RAM usage percentage based on memory values
+                usage_percentage = (used_mem_gib / max_mem_gib) * 100
+                self.logger.debug(f"Calculated RAM Usage: {usage_percentage:.2f}%")
+                return usage_percentage
+            else:
+                self.logger.warning("RAM memory values not found in output.")
+                return 0.0
+
         except Exception as e:
             self.logger.error(f"Error parsing RAM usage: {e}")
             return 0.0
