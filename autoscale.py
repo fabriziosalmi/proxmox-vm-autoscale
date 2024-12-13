@@ -254,17 +254,17 @@ class VMAutoscaler:
         """Handle RAM scaling decisions."""
         thresholds = self.config['scaling_thresholds']['ram']
         if ram_usage > thresholds['high']:
-            vm_manager.scale_ram('up')
-            self.notification_manager.send_notification(
-                f"Scaled up RAM for VM {vm_id} due to high usage ({ram_usage}%).",
-                priority=7
-            )
+            if vm_manager.scale_ram('up'):
+                self.notification_manager.send_notification(
+                    f"Scaled up RAM for VM {vm_id} due to high usage ({ram_usage}%).",
+                    priority=7
+                )
         elif ram_usage < thresholds['low']:
-            vm_manager.scale_ram('down')
-            self.notification_manager.send_notification(
-                f"Scaled down RAM for VM {vm_id} due to low usage ({ram_usage}%).",
-                priority=5
-            )
+            if vm_manager.scale_ram('down'):
+                self.notification_manager.send_notification(
+                    f"Scaled down RAM for VM {vm_id} due to low usage ({ram_usage}%).",
+                    priority=5
+                )
 
     def run(self) -> None:
         """Main execution loop."""

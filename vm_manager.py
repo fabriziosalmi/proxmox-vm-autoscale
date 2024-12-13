@@ -81,7 +81,7 @@ class VMResourceManager:
     def scale_cpu(self, direction):
         """Scale the CPU cores and vCPUs of the VM."""
         if not self.can_scale():
-            return
+            return False
 
         try:
             current_cores = self._get_current_cores()
@@ -106,22 +106,25 @@ class VMResourceManager:
     def scale_ram(self, direction):
         """Scale the RAM of the VM."""
         if not self.can_scale():
-            return
+            return False
 
         try:
             current_ram = self._get_current_ram()
             max_ram = self._get_max_ram()
             min_ram = self._get_min_ram()
 
+            self.last_scale_time = time.time()
             if direction == "up" and current_ram < max_ram:
                 new_ram = min(current_ram + 512, max_ram)
                 self._set_ram(new_ram)
+                return True
             elif direction == "down" and current_ram > min_ram:
                 new_ram = max(current_ram - 512, min_ram)
                 self._set_ram(new_ram)
+                return True
             else:
                 self.logger.info("No RAM scaling required.")
-            self.last_scale_time = time.time()
+            return False
         except Exception as e:
             self.logger.error(f"Failed to scale RAM: {e}")
             raise
