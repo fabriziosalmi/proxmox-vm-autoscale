@@ -5,6 +5,7 @@ import smtplib
 import logging
 import logging.config
 import time
+import re
 from ssh_utils import SSHClient
 from pathlib import Path
 from email.mime.text import MIMEText
@@ -96,13 +97,17 @@ class NotificationManager:
             to_emails = [smtp_config['recipient']] if isinstance(smtp_config['recipient'], str) else smtp_config['recipient']
             if not all(isinstance(email, str) for email in to_emails):
                 raise ValueError("Invalid email format in recipients")
-
             formatted_message = self._format_message(message)
-
+            pattern = r"VM (\d+ due to [\w\s]+) \("
+            result = re.search(pattern, formatted_message)
+            if result:
+                vm_id_and_msg = result.group(1)
+            else:
+                vm_id_and_msg = ""
             msg = MIMEMultipart()
             msg['From'] = smtp_config['user']
             msg['To'] = ", ".join(to_emails)
-            msg['Subject'] = "VM Autoscale Alert"
+            msg['Subject'] = f"VM Autoscale Alert for VM {vm_id_and_msg}"
             msg.attach(MIMEText(formatted_message, 'plain'))
 
             with smtplib.SMTP(smtp_config['host'], smtp_config['port']) as server:
