@@ -197,6 +197,7 @@ class VMAutoscaler:
         try:
             ssh_client = SSHClient(
                 host=host['host'],
+                port=port['ssh_port']
                 user=host['ssh_user'],
                 password=host.get('ssh_password'),
                 key_path=host.get('ssh_key')
