@@ -26,6 +26,7 @@ proxmox_hosts:
     ssh_user: root
     ssh_password: your_password_here   # SSH password or key must be provided
     ssh_key: /path/to/ssh_key          # Path to SSH private key (optional, use if no password)
+    ssh_port: 22                       # SSH Port (default 22)
 
   - name: host2
     host: 192.168.1.11
