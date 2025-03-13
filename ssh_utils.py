@@ -75,38 +75,33 @@ class SSHClient:
                 time.sleep(sleep_time)
 
     def execute_command(self, command, timeout=30):
-        """
-        Execute a command on the remote server.
-        :param command: Command to execute.
-        :param timeout: Timeout in seconds for command execution.
-        :return: Tuple (output, error, exit_code).
-        """
-        if self.client is None or not (self.client.get_transport() and self.client.get_transport().is_active()):
-            self.connect()
+        """Execute a command on the remote server with retry logic."""
+        attempts = 0
+        while attempts < self.max_retries:
+            try:
+                # ...existing code before try...
+                stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
+                exit_status = stdout.channel.recv_exit_status()
 
-        try:
-            stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
-            exit_status = stdout.channel.recv_exit_status()
+                output = stdout.read().decode('utf-8').strip()
+                error = stderr.read().decode('utf-8').strip()
 
-            output = stdout.read().decode('utf-8').strip()
-            error = stderr.read().decode('utf-8').strip()
-
-            if exit_status == 0:
-                self.logger.info(f"Command executed successfully on {self.host}: {command}")
-                return output, error, exit_status
-            else:
-                self.logger.warning(f"Command execution failed on {self.host} with exit status {exit_status}")
-                return output, error, exit_status
-
-        except SSHException as ssh_ex:
-            self.logger.error(f"SSH error while executing command on {self.host}: {str(ssh_ex)}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Error executing command on {self.host}: {str(e)}")
-            # Attempt to reconnect and execute the command again
-            self.close()
-            self.connect()  # Re-establish the connection
-            return self.execute_command(command, timeout)
+                if exit_status == 0:
+                    self.logger.info(f"Command executed successfully on {self.host}: {command}")
+                    return output, error, exit_status
+                else:
+                    self.logger.warning(f"Command execution failed on {self.host} with exit status {exit_status}")
+                    return output, error, exit_status
+            except Exception as e:
+                attempts += 1
+                self.logger.error(f"Error executing command on {self.host} (attempt {attempts}): {str(e)}")
+                self.close()
+                try:
+                    self.connect()
+                except Exception as connect_err:
+                    self.logger.error(f"Reconnection failed on {self.host}: {str(connect_err)}")
+                time.sleep(self.backoff_factor * (2 ** (attempts - 1)))
+        raise Exception(f"Failed to execute command on {self.host} after {attempts} attempts.")
 
     def close(self):
         """

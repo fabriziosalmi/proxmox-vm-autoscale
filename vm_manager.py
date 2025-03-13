@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+import threading
 
 
 class VMResourceManager:
@@ -11,6 +12,7 @@ class VMResourceManager:
         self.logger = logging.getLogger("vm_resource_manager")
         self.last_scale_time = 0
         self.scale_cooldown = self.config.get("scale_cooldown", 300)  # Default to 5 minutes
+        self.scale_lock = threading.Lock()  # Added lock for scaling control
 
     def _get_command_output(self, output):
         """Helper method to properly handle command output that might be a tuple."""
@@ -70,14 +72,13 @@ class VMResourceManager:
             return 0.0, 0.0
 
     def can_scale(self):
-        # Current implementation could allow multiple scaling operations
-        # if called simultaneously from different threads
-        current_time = time.time()
-        if current_time - self.last_scale_time < self.scale_cooldown:
-            return False
-        # Should add locking mechanism here
-        self.last_scale_time = time.time()
-        return True
+        """Determine if scaling can occur using a lock to avoid race conditions."""
+        with self.scale_lock:
+            current_time = time.time()
+            if current_time - self.last_scale_time < self.scale_cooldown:
+                return False
+            self.last_scale_time = current_time
+            return True
 
     def scale_cpu(self, direction):
         """Scale the CPU cores and vCPUs of the VM."""

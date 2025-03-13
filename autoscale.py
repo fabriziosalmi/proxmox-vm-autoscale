@@ -99,16 +99,17 @@ class NotificationManager:
             if not all(isinstance(email, str) for email in to_emails):
                 raise ValueError("Invalid email format in recipients")
             formatted_message = self._format_message(message)
-            pattern = r"VM (\d+ due to [\w\s]+) \("
+            # Updated regex to capture the VM number
+            pattern = r"VM\s+(\d+)"
             result = re.search(pattern, formatted_message)
             if result:
-                vm_id_and_msg = result.group(1)
+                vm_id = result.group(1)
             else:
-                vm_id_and_msg = ""
+                vm_id = ""
             msg = MIMEMultipart()
             msg['From'] = smtp_config['user']
             msg['To'] = ", ".join(to_emails)
-            msg['Subject'] = f"VM Autoscale Alert for VM {vm_id_and_msg}"
+            msg['Subject'] = f"VM Autoscale Alert for VM {vm_id}"
             msg.attach(MIMEText(formatted_message, 'plain'))
 
             with smtplib.SMTP(smtp_config['host'], smtp_config['port']) as server:
