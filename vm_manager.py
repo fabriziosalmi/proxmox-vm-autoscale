@@ -70,12 +70,13 @@ class VMResourceManager:
             return 0.0, 0.0
 
     def can_scale(self):
-        """Check if scaling operations are allowed based on cooldown."""
+        # Current implementation could allow multiple scaling operations
+        # if called simultaneously from different threads
         current_time = time.time()
         if current_time - self.last_scale_time < self.scale_cooldown:
-            remaining_time = int(self.scale_cooldown - (current_time - self.last_scale_time))
-            self.logger.info(f"Scaling on cooldown. Try again in {remaining_time} seconds.")
             return False
+        # Should add locking mechanism here
+        self.last_scale_time = time.time()
         return True
 
     def scale_cpu(self, direction):

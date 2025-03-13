@@ -1,5 +1,6 @@
 import paramiko
 import logging
+import time
 from paramiko.ssh_exception import SSHException, AuthenticationException
 
 class SSHClient:
@@ -19,6 +20,9 @@ class SSHClient:
         self.port = port
         self.logger = logging.getLogger("ssh_utils")
         self.client = None
+        # Added max retries and backoff factor for connection attempts
+        self.max_retries = 5
+        self.backoff_factor = 1
 
     def connect(self):
         """
@@ -28,42 +32,47 @@ class SSHClient:
             self.logger.info(f"Already connected to {self.host}. Reusing the connection.")
             return
 
-        try:
-            self.client = paramiko.SSHClient()
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            # Connect using password or private key
-            if self.password:
-                self.client.connect(
-                    hostname=self.host, 
-                    username=self.user, 
-                    password=self.password, 
-                    port=self.port,
-                    timeout=10
-                )
-            elif self.key_path:
-                private_key = paramiko.RSAKey.from_private_key_file(self.key_path)
-                self.client.connect(
-                    hostname=self.host, 
-                    username=self.user, 
-                    pkey=private_key, 
-                    port=self.port,
-                    timeout=10
-                )
-            else:
-                raise ValueError("Either password or key_path must be provided for SSH connection.")
-            
-            self.logger.info(f"Successfully connected to {self.host} on port {self.port}")
+        attempt = 0
+        while attempt < self.max_retries:
+            try:
+                self.client = paramiko.SSHClient()
+                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                
+                # Connect using password or private key
+                if self.password:
+                    self.client.connect(
+                        hostname=self.host, 
+                        username=self.user, 
+                        password=self.password, 
+                        port=self.port,
+                        timeout=10
+                    )
+                elif self.key_path:
+                    private_key = paramiko.RSAKey.from_private_key_file(self.key_path)
+                    self.client.connect(
+                        hostname=self.host, 
+                        username=self.user, 
+                        pkey=private_key, 
+                        port=self.port,
+                        timeout=10
+                    )
+                else:
+                    raise ValueError("Either password or key_path must be provided for SSH connection.")
+                
+                self.logger.info(f"Successfully connected to {self.host} on port {self.port}")
+                break  # successful connection: exit loop
 
-        except AuthenticationException:
-            self.logger.error(f"Authentication failed for {self.host}. Check credentials or key file.")
-            raise
-        except SSHException as ssh_ex:
-            self.logger.error(f"SSH error while connecting to {self.host}: {str(ssh_ex)}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Unexpected error while connecting to {self.host}: {str(e)}")
-            raise
+            except AuthenticationException:
+                self.logger.error(f"Authentication failed for {self.host}. Check credentials or key file.")
+                raise
+            except (SSHException, Exception) as e:
+                attempt += 1
+                if attempt >= self.max_retries:
+                    self.logger.error(f"Failed to connect to {self.host} after {attempt} attempts.")
+                    raise e
+                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
+                self.logger.info(f"Retrying connection to {self.host} in {sleep_time} seconds (attempt {attempt}/{self.max_retries})")
+                time.sleep(sleep_time)
 
     def execute_command(self, command, timeout=30):
         """
