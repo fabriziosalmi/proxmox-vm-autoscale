@@ -205,30 +205,40 @@ class VMAutoscaler:
             ssh_client.connect()
 
             vm_manager = VMResourceManager(ssh_client, vm['vm_id'], self.config)
+            
+            # First check if VM is running
             if not vm_manager.is_vm_running():
                 self.logger.info(f"VM {vm['vm_id']} is not running. Skipping scaling.")
                 return
 
+            # Check host resources first
             host_checker = HostResourceChecker(ssh_client)
             if not host_checker.check_host_resources(
                     self.config['host_limits']['max_host_cpu_percent'],
                     self.config['host_limits']['max_host_ram_percent']):
-                self.logger.warning(f"Host {host['name']} resources maxed out. Scaling restricted.")
-                self.notification_manager.send_notification(
-                    f"Host {host['name']} resources maxed out. Scaling restricted.",
-                    priority=8
-                )
+                self.logger.warning(f"Host {host['name']} resources maxed out. Skipping scaling.")
                 return
 
-            # Scaling logic
-            vm_cpu_usage, vm_ram_usage = vm_manager.get_resource_usage()
-            self.logger.info(f"VM {vm['vm_id']} - CPU: {vm_cpu_usage}%, RAM: {vm_ram_usage}%")
+            # Get current resource usage once to avoid multiple calls
+            current_cpu_usage, current_ram_usage = vm_manager.get_resource_usage()
+            self.logger.info(f"VM {vm['vm_id']} current usage - CPU: {current_cpu_usage}%, RAM: {current_ram_usage}%")
 
-            if vm['cpu_scaling']:
-                self._handle_cpu_scaling(vm_manager, vm['vm_id'], vm_cpu_usage)
+            # Handle CPU scaling if enabled
+            if vm.get('cpu_scaling', False):
+                try:
+                    self._handle_cpu_scaling(vm_manager, vm['vm_id'], current_cpu_usage)
+                    self.logger.debug(f"CPU scaling completed for VM {vm['vm_id']}")
+                except Exception as e:
+                    self.logger.error(f"CPU scaling failed for VM {vm['vm_id']}: {str(e)}")
+                    # Continue to RAM scaling even if CPU scaling fails
 
-            if vm['ram_scaling']:
-                self._handle_ram_scaling(vm_manager, vm['vm_id'], vm_ram_usage)
+            # Handle RAM scaling if enabled
+            if vm.get('ram_scaling', False):
+                try:
+                    self._handle_ram_scaling(vm_manager, vm['vm_id'], current_ram_usage)
+                    self.logger.debug(f"RAM scaling completed for VM {vm['vm_id']}")
+                except Exception as e:
+                    self.logger.error(f"RAM scaling failed for VM {vm['vm_id']}: {str(e)}")
 
         except Exception as e:
             self.logger.error(f"Error processing VM {vm['vm_id']} on host {host['name']}: {e}")

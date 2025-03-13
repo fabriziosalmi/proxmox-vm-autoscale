@@ -36,17 +36,27 @@ proxmox_hosts:
 
 # Virtual machines to be monitored and scaled
 virtual_machines:
-  - vm_id: 101
-    proxmox_host: host1
+  - vm_id: "101"
+    proxmox_host: "host1"
     scaling_enabled: true
-    cpu_scaling: true                 # Enable CPU scaling for this VM
-    ram_scaling: true                 # Enable RAM scaling for this VM
+    cpu_scaling: true    # Enable/disable CPU scaling
+    ram_scaling: true    # Enable/disable RAM scaling
+    thresholds:
+      cpu_high: 80
+      cpu_low: 20
+      ram_high: 80
+      ram_low: 20
 
   - vm_id: 102
     proxmox_host: host2
     scaling_enabled: true
     cpu_scaling: true
     ram_scaling: true
+    thresholds:
+      cpu_high: 80
+      cpu_low: 20
+      ram_high: 80
+      ram_low: 20
 
 # Logging configuration
 logging:
