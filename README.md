@@ -1,4 +1,6 @@
 # 🚀 VM Autoscale
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale?ref=badge_shield)
+
 
 ## 🌟 Overview
 **Proxmox VM Autoscale** is a dynamic scaling service that automatically adjusts virtual machine (VM) resources (CPU cores and RAM) on your Proxmox Virtual Environment (VE) based on real-time metrics and user-defined thresholds. This solution helps ensure efficient resource usage, optimizing performance and resource availability dynamically.
@@ -194,3 +196,6 @@ If You like my projects, you may also like these ones:
 
 ### 📜 License
 This project is licensed under the **MIT License**. See the LICENSE file for complete details.
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale?ref=badge_large)
