@@ -33,6 +33,8 @@ The service supports multiple Proxmox hosts via SSH connections and can be easil
 - 🌐 **Multi-host support** via SSH (compatible with both password and key-based authentication).
 - 📲 **Gotify Notifications** for alerting you whenever scaling actions are performed.
 - ⚙️ **Systemd Integration** for effortless setup, management, and monitoring as a Linux service.
+- 🔥 **Auto-Hotplug Configuration** - Automatically enables hotplug and NUMA on VMs for seamless live scaling.
+- 💰 **Billing Support** - Track resource usage and generate billing reports for web hosting providers.
 
 ## 📋 Prerequisites
 - 🖥️ **Proxmox VE** 6.0 or higher must be installed on the target hosts
@@ -40,7 +42,7 @@ The service supports multiple Proxmox hosts via SSH connections and can be easil
 - 🔑 **SSH access** to Proxmox hosts (password or key-based authentication)
 - 📦 **Python packages**: `paramiko`, `PyYAML`, `requests` (installed automatically)
 - 💻 Basic familiarity with Proxmox `qm` commands and SSH configuration
-- ⚙️ **NUMA and Hotplug** features enabled on target VMs (see configuration below)
+- ⚙️ **NUMA and Hotplug** features enabled on target VMs (auto-configured by default, see below)
 
 ## 🤝 Contributing
 Contributions are **more than** welcome! If you encounter a bug or have suggestions for improvement, please [open an issue](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/new/choose) or submit a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
@@ -71,6 +73,9 @@ bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autosc
 ```bash
 systemctl start vm_autoscale.service
 ```
+
+> [!TIP]
+> **Auto-Hotplug Configuration**: By default, the autoscaler will automatically enable hotplug and NUMA on managed VMs. If you prefer manual configuration, set `auto_configure_hotplug: false` in the config file.
 
 > [!IMPORTANT]
 > Make sure to review the official [Proxmox documentation](https://pve.proxmox.com/wiki/Hotplug_(qemu_disk,nic,cpu,memory)) for the hotplug feature requirements to enable scaling virtual machines on the fly.
@@ -161,12 +166,25 @@ host_limits:
   max_host_cpu_percent: 90  # Don't scale if host CPU > 90%
   max_host_ram_percent: 90  # Don't scale if host RAM > 90%
 
+# Auto-configure hotplug and NUMA for live scaling
+auto_configure_hotplug: true  # Set to false to disable auto-configuration
+
 # Optional: Gotify notifications
 gotify:
   enabled: false
   server_url: https://gotify.example.com
   app_token: your_gotify_app_token_here
   priority: 5
+
+# Optional: Billing for web hosters
+billing:
+  enabled: false                       # Enable billing tracking
+  billing_period_days: 30              # Billing period length
+  cost_per_cpu_core_per_hour: 0.01     # Cost per CPU core per hour
+  cost_per_gb_ram_per_hour: 0.005      # Cost per GB RAM per hour
+  csv_output_dir: /var/log/vm_autoscale/billing/
+  webhook_script: ""                   # Optional: custom billing script
+  webhook_url: ""                      # Optional: POST to URL
 ```
 
 ### ⚙️ Configuration Details
@@ -176,9 +194,28 @@ gotify:
 - **`proxmox_hosts`**: Contains details of Proxmox hosts, including SSH credentials and connection settings
 - **`virtual_machines`**: Lists the VMs to be managed by the autoscaling script, allowing per-VM scaling customization
 - **`logging`**: Specifies the logging level and log file path for activity tracking and debugging
+- **`auto_configure_hotplug`**: When enabled (default), automatically configures hotplug and NUMA on VMs for live scaling
 - **`gotify`**: Configures **Gotify notifications** to send alerts when scaling actions are performed
+- **`billing`**: Tracks resource changes for billing purposes (ideal for web hosters)
 - **`alerts`**: Email notification settings (optional) for scaling events
 - **`host_limits`**: Safety thresholds to prevent scaling when host resources are constrained
+
+## 💰 Billing for Web Hosters
+
+For bulk web hosters offering dynamic pricing, the billing feature tracks:
+- **Resource changes**: CPU cores and RAM changes with timestamps
+- **Uptime tracking**: VM start/stop events
+- **Cost calculation**: Based on configured rates per CPU core and GB of RAM
+
+When enabled, billing reports are generated as CSV files in the configured output directory. You can also configure a webhook script or URL to integrate with your billing system.
+
+### Billing Report Contents
+- VM ID and name
+- Billing period dates
+- Min/max/average CPU and RAM
+- Uptime statistics and percentage
+- List of all spec changes
+- Calculated total cost
 
 ## 📲 Gotify Notifications
 Gotify is used to send real-time notifications regarding scaling actions. Configure Gotify in the `config.yaml` file:

@@ -83,3 +83,16 @@ gotify:
 host_limits:
   max_host_cpu_percent: 90            # Max CPU usage percentage for the host before scaling is restricted
   max_host_ram_percent: 90            # Max RAM usage percentage for the host before scaling is restricted
+
+# Hotplug auto-configuration
+auto_configure_hotplug: true          # Automatically enable hotplug and NUMA on VMs for live scaling
+
+# Billing configuration (Optional) - for tracking autoscaled resource usage
+billing:
+  enabled: false                       # Enable billing tracking
+  billing_period_days: 30              # Length of billing period in days
+  cost_per_cpu_core_per_hour: 0.01     # Cost per CPU core per hour
+  cost_per_gb_ram_per_hour: 0.005      # Cost per GB RAM per hour
+  csv_output_dir: /var/log/vm_autoscale/billing/  # Directory for billing CSV reports
+  webhook_script: ""                   # Optional: path to script to run with billing data
+  webhook_url: ""                      # Optional: POST billing data to this URL

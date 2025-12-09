@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from vm_manager import VMResourceManager
 from host_resource_checker import HostResourceChecker
+from billing_tracker import BillingTracker
 from functools import wraps
 from typing import Union, List, Optional, Dict, Any
 
@@ -158,6 +159,14 @@ class VMAutoscaler:
         self.config = self._load_config(config_path)
         self.logger = self._setup_logging(logging_config_path)
         self.notification_manager = NotificationManager(self.config, self.logger)
+        
+        # Initialize billing tracker if enabled
+        self.billing_enabled = self.config.get('billing', {}).get('enabled', False)
+        if self.billing_enabled:
+            self.billing_tracker = BillingTracker(self.config, self.logger)
+            self.logger.info("Billing tracking enabled")
+        else:
+            self.billing_tracker = None
 
     @staticmethod
     def _load_config(config_path: str) -> Dict[str, Any]:
@@ -261,12 +270,18 @@ class VMAutoscaler:
                     f"Scaled up CPU for VM {vm_id} due to high usage ({cpu_usage}%).",
                     priority=7
                 )
+                # Record for billing
+                if self.billing_tracker:
+                    self._record_billing_spec(vm_manager, vm_id)
         elif cpu_usage < thresholds['low']:
             if vm_manager.scale_cpu('down'):
                 self.notification_manager.send_notification(
                     f"Scaled down CPU for VM {vm_id} due to low usage ({cpu_usage}%).",
                     priority=5
                 )
+                # Record for billing
+                if self.billing_tracker:
+                    self._record_billing_spec(vm_manager, vm_id)
 
     def _handle_ram_scaling(self, vm_manager: VMResourceManager, vm_id: int, ram_usage: float) -> None:
         """Handle RAM scaling decisions."""
@@ -277,12 +292,31 @@ class VMAutoscaler:
                     f"Scaled up RAM for VM {vm_id} due to high usage ({ram_usage}%).",
                     priority=7
                 )
+                # Record for billing
+                if self.billing_tracker:
+                    self._record_billing_spec(vm_manager, vm_id)
         elif ram_usage < thresholds['low']:
             if vm_manager.scale_ram('down'):
                 self.notification_manager.send_notification(
                     f"Scaled down RAM for VM {vm_id} due to low usage ({ram_usage}%).",
                     priority=5
                 )
+                # Record for billing
+                if self.billing_tracker:
+                    self._record_billing_spec(vm_manager, vm_id)
+
+    def _record_billing_spec(self, vm_manager: VMResourceManager, vm_id: int) -> None:
+        """Record current VM spec for billing after a scaling operation."""
+        try:
+            current_cores = vm_manager._get_current_cores()
+            current_ram = vm_manager._get_current_ram()
+            self.billing_tracker.record_spec_change(
+                vm_id=str(vm_id),
+                cpu_cores=current_cores,
+                ram_mb=current_ram
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to record billing spec for VM {vm_id}: {e}")
 
     def run(self) -> None:
         """Main execution loop."""

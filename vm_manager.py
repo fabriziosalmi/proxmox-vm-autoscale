@@ -13,6 +13,43 @@ class VMResourceManager:
         self.last_scale_time = 0
         self.scale_cooldown = self.config.get("scale_cooldown", 300)  # Default to 5 minutes
         self.scale_lock = threading.Lock()  # Added lock for scaling control
+        self.auto_configure_hotplug = self.config.get("auto_configure_hotplug", True)
+        
+        # Auto-configure hotplug if enabled
+        if self.auto_configure_hotplug:
+            self._ensure_hotplug_configured()
+
+    def _ensure_hotplug_configured(self):
+        """Ensure hotplug and NUMA are enabled for this VM (for live scaling support)."""
+        try:
+            cpu_hotplug, memory_hotplug = self._check_hotplug_enabled()
+            numa_enabled = self._check_numa_enabled()
+            
+            needs_update = False
+            updates = []
+            
+            # Check if we need to enable hotplug for CPU/memory
+            if not cpu_hotplug or not memory_hotplug:
+                updates.append("-hotplug cpu,memory,network,disk,usb")
+                needs_update = True
+                self.logger.info(f"VM {self.vm_id}: Enabling hotplug for cpu,memory,network,disk,usb")
+            
+            # Check if we need to enable NUMA (required for memory hotplug)
+            if not numa_enabled:
+                updates.append("-numa 1")
+                needs_update = True
+                self.logger.info(f"VM {self.vm_id}: Enabling NUMA for memory hotplug support")
+            
+            if needs_update:
+                command = f"qm set {self.vm_id} {' '.join(updates)}"
+                output = self.ssh_client.execute_command(command)
+                self._get_command_output(output)
+                self.logger.info(
+                    f"VM {self.vm_id}: Hotplug configuration updated. "
+                    "Note: NUMA changes require a VM restart to take effect."
+                )
+        except Exception as e:
+            self.logger.warning(f"Failed to auto-configure hotplug for VM {self.vm_id}: {e}")
 
     def _get_command_output(self, output):
         """Helper method to properly handle command output that might be a tuple."""
@@ -253,49 +290,192 @@ class VMResourceManager:
         """Retrieve minimum allowed RAM."""
         return self.config.get("min_ram", 512)
 
-    def _set_ram(self, ram):
-        """Set the RAM for the VM."""
+    def _check_hotplug_enabled(self):
+        """Check if hotplug is enabled for CPU and memory on this VM."""
         try:
-            command = f"qm set {self.vm_id} -memory {ram}"
+            command = f"qm config {self.vm_id}"
             output = self.ssh_client.execute_command(command)
-            self._get_command_output(output)  # Process output to catch any errors
-            self.logger.info(f"RAM set to {ram} MB for VM {self.vm_id}.")
+            output_str = self._get_command_output(output)
+            
+            # Check for hotplug setting (e.g., "hotplug: cpu,memory" or "hotplug: network,disk,cpu,memory")
+            hotplug_match = re.search(r"hotplug:\s*([^\n]+)", output_str)
+            if hotplug_match:
+                hotplug_settings = hotplug_match.group(1).lower()
+                cpu_hotplug = 'cpu' in hotplug_settings
+                memory_hotplug = 'memory' in hotplug_settings
+                return cpu_hotplug, memory_hotplug
+            
+            # If no hotplug line, hotplug is disabled
+            return False, False
+        except Exception as e:
+            self.logger.error(f"Failed to check hotplug settings: {e}")
+            return False, False
+
+    def _check_numa_enabled(self):
+        """Check if NUMA is enabled on this VM (required for memory hotplug)."""
+        try:
+            command = f"qm config {self.vm_id}"
+            output = self.ssh_client.execute_command(command)
+            output_str = self._get_command_output(output)
+            
+            # Check for numa setting
+            numa_match = re.search(r"numa:\s*(\d+)", output_str)
+            if numa_match:
+                return int(numa_match.group(1)) == 1
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to check NUMA settings: {e}")
+            return False
+
+    def _get_balloon_value(self):
+        """Get current balloon memory value."""
+        try:
+            command = f"qm config {self.vm_id}"
+            output = self.ssh_client.execute_command(command)
+            output_str = self._get_command_output(output)
+            match = re.search(r"balloon:\s*(\d+)", output_str)
+            return int(match.group(1)) if match else None
+        except Exception as e:
+            self.logger.debug(f"Failed to get balloon value: {e}")
+            return None
+
+    def _set_ram(self, ram):
+        """Set the RAM for the VM, using balloon for hotplug if available."""
+        try:
+            is_running = self.is_vm_running()
+            _, memory_hotplug = self._check_hotplug_enabled()
+            numa_enabled = self._check_numa_enabled()
+            
+            if is_running and memory_hotplug and numa_enabled:
+                # Use balloon for immediate effect on running VMs with hotplug
+                command = f"qm set {self.vm_id} -balloon {ram}"
+                output = self.ssh_client.execute_command(command)
+                self._get_command_output(output)
+                self.logger.info(f"RAM balloon set to {ram} MB for VM {self.vm_id} (hotplug applied).")
+            elif is_running and memory_hotplug and not numa_enabled:
+                # Hotplug enabled but NUMA not - this won't work properly
+                self.logger.warning(
+                    f"VM {self.vm_id} has memory hotplug enabled but NUMA is disabled. "
+                    "Memory changes will require a reboot. Enable NUMA for live memory scaling."
+                )
+                command = f"qm set {self.vm_id} -memory {ram}"
+                output = self.ssh_client.execute_command(command)
+                self._get_command_output(output)
+                self.logger.info(f"RAM config set to {ram} MB for VM {self.vm_id} (requires reboot).")
+            elif is_running:
+                # No hotplug - warn and set config only
+                self.logger.warning(
+                    f"VM {self.vm_id} does not have memory hotplug enabled. "
+                    "Memory changes will require a reboot. Enable 'hotplug: memory' and NUMA for live scaling."
+                )
+                command = f"qm set {self.vm_id} -memory {ram}"
+                output = self.ssh_client.execute_command(command)
+                self._get_command_output(output)
+                self.logger.info(f"RAM config set to {ram} MB for VM {self.vm_id} (requires reboot).")
+            else:
+                # VM not running - just set memory config
+                command = f"qm set {self.vm_id} -memory {ram}"
+                output = self.ssh_client.execute_command(command)
+                self._get_command_output(output)
+                self.logger.info(f"RAM set to {ram} MB for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set RAM to {ram}: {e}")
             raise
 
     def _scale_cpu_up(self, current_cores, current_vcpus):
-        """Helper method to scale CPU up."""
-        new_cores = current_cores + 1
-        self._set_cores(new_cores)
-        new_vcpus = min(current_vcpus + 1, new_cores)
-        self._set_vcpus(new_vcpus)
+        """Helper method to scale CPU up, using hotplug when available."""
+        is_running = self.is_vm_running()
+        cpu_hotplug, _ = self._check_hotplug_enabled()
+        
+        if is_running and cpu_hotplug:
+            # For hotplug: prefer adjusting vcpus within current cores limit
+            if current_vcpus < current_cores:
+                # We can increase vcpus without changing cores
+                new_vcpus = current_vcpus + 1
+                self._set_vcpus(new_vcpus)
+                self.logger.info(f"Scaled up vCPUs to {new_vcpus} for VM {self.vm_id} (hotplug applied).")
+            else:
+                # vcpus == cores, need to increase cores (config change) then vcpus
+                new_cores = current_cores + 1
+                self._set_cores(new_cores)
+                new_vcpus = current_vcpus + 1
+                self._set_vcpus(new_vcpus)
+                self.logger.warning(
+                    f"VM {self.vm_id}: Increased cores to {new_cores} (requires reboot for full effect) "
+                    f"and vCPUs to {new_vcpus} (hotplug applied)."
+                )
+        elif is_running:
+            # No hotplug - config change only, warn user
+            new_cores = current_cores + 1
+            self._set_cores(new_cores)
+            new_vcpus = min(current_vcpus + 1, new_cores)
+            self._set_vcpus(new_vcpus)
+            self.logger.warning(
+                f"VM {self.vm_id} does not have CPU hotplug enabled. "
+                "CPU changes will require a reboot. Enable 'hotplug: cpu' for live CPU scaling."
+            )
+        else:
+            # VM not running - just set config
+            new_cores = current_cores + 1
+            self._set_cores(new_cores)
+            new_vcpus = min(current_vcpus + 1, new_cores)
+            self._set_vcpus(new_vcpus)
 
     def _scale_cpu_down(self, current_cores, current_vcpus):
-        """Helper method to scale CPU down."""
-        new_vcpus = max(current_vcpus - 1, 1)
-        self._set_vcpus(new_vcpus)
-        new_cores = current_cores - 1
-        self._set_cores(new_cores)
+        """Helper method to scale CPU down, using hotplug when available."""
+        is_running = self.is_vm_running()
+        cpu_hotplug, _ = self._check_hotplug_enabled()
+        
+        if is_running and cpu_hotplug:
+            # For hotplug: reduce vcpus first (immediate effect)
+            new_vcpus = max(current_vcpus - 1, 1)
+            self._set_vcpus(new_vcpus)
+            self.logger.info(f"Scaled down vCPUs to {new_vcpus} for VM {self.vm_id} (hotplug applied).")
+            
+            # Optionally reduce cores if vcpus is significantly lower
+            # (cores change requires reboot, so we only do it when it makes sense)
+            new_cores = current_cores - 1
+            if new_cores >= new_vcpus and new_cores >= self._get_min_cores():
+                self._set_cores(new_cores)
+                self.logger.info(
+                    f"Also reduced cores config to {new_cores} for VM {self.vm_id} "
+                    "(will take effect after reboot)."
+                )
+        elif is_running:
+            # No hotplug - config change only, warn user
+            new_vcpus = max(current_vcpus - 1, 1)
+            self._set_vcpus(new_vcpus)
+            new_cores = current_cores - 1
+            self._set_cores(new_cores)
+            self.logger.warning(
+                f"VM {self.vm_id} does not have CPU hotplug enabled. "
+                "CPU changes will require a reboot. Enable 'hotplug: cpu' for live CPU scaling."
+            )
+        else:
+            # VM not running - just set config
+            new_vcpus = max(current_vcpus - 1, 1)
+            self._set_vcpus(new_vcpus)
+            new_cores = current_cores - 1
+            self._set_cores(new_cores)
 
     def _set_cores(self, cores):
-        """Set the CPU cores for the VM."""
+        """Set the CPU cores for the VM (config change, requires reboot for running VMs)."""
         try:
             command = f"qm set {self.vm_id} -cores {cores}"
             output = self.ssh_client.execute_command(command)
-            self._get_command_output(output)  # Process output to catch any errors
-            self.logger.info(f"CPU cores set to {cores} for VM {self.vm_id}.")
+            self._get_command_output(output)
+            self.logger.debug(f"CPU cores config set to {cores} for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set CPU cores to {cores}: {e}")
             raise
 
     def _set_vcpus(self, vcpus):
-        """Set the vCPUs for the VM."""
+        """Set the vCPUs for the VM (can be hotplugged if enabled)."""
         try:
             command = f"qm set {self.vm_id} -vcpus {vcpus}"
             output = self.ssh_client.execute_command(command)
-            self._get_command_output(output)  # Process output to catch any errors
-            self.logger.info(f"vCPUs set to {vcpus} for VM {self.vm_id}.")
+            self._get_command_output(output)
+            self.logger.debug(f"vCPUs set to {vcpus} for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set vCPUs to {vcpus}: {e}")
             raise
