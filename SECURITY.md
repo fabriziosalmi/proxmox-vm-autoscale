@@ -13,7 +13,7 @@ This project is currently in active development. We recommend using the latest v
 
 We take security vulnerabilities seriously. If you discover a security issue, please follow these steps:
 
-### 🔒 Private Disclosure Process
+### Private Disclosure Process
 
 1. **DO NOT** open a public GitHub issue for security vulnerabilities
 2. Email security details to: **fabrizio.salmi@gmail.com**
@@ -23,13 +23,13 @@ We take security vulnerabilities seriously. If you discover a security issue, pl
    - Potential impact assessment
    - Suggested fix (if available)
 
-### ⏱️ Response Timeline
+### Response Timeline
 
 - **Initial Response**: Within 48 hours of report
 - **Status Update**: Within 7 days with assessment and timeline
 - **Resolution**: Depends on severity and complexity
 
-### 🏆 Recognition
+### Recognition
 
 We appreciate security researchers and will:
 - Acknowledge your contribution (if desired)
@@ -101,15 +101,6 @@ When contributing:
 3. **Privileged Access**:
    - Service requires root access to Proxmox hosts
    - **Mitigation**: Use dedicated service accounts with minimal required permissions where possible
-
-### Future Enhancements
-
-Planned security improvements:
-- Support for encrypted credential storage
-- Integration with secret management systems (Vault, etc.)
-- Support for SSH agent authentication
-- Audit logging for all scaling actions
-- Role-based access control
 
 ## Security Update Process
 

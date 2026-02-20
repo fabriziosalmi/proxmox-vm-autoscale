@@ -1,25 +1,25 @@
-# 🚀 Proxmox VM Autoscale
+# Proxmox VM Autoscale
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale?ref=badge_shield)
 
-## 🌟 Overview
-**Proxmox VM Autoscale** is a dynamic scaling service that automatically adjusts virtual machine (VM) resources (CPU cores and RAM) on your Proxmox Virtual Environment (VE) based on real-time metrics and user-defined thresholds. This solution helps ensure efficient resource usage, optimizing performance and resource availability dynamically.
+## Overview
+**Proxmox VM Autoscale** is a service that automatically adjusts virtual machine (VM) resources (CPU cores and RAM) on Proxmox Virtual Environment (VE) based on real-time metrics and user-defined thresholds.
 
-The service supports multiple Proxmox hosts via SSH connections and can be easily installed and managed as a **systemd** service for seamless automation.
+The service connects to Proxmox hosts over SSH and runs as a **systemd** service.
 
-## 📑 Table of Contents
-- [Overview](#-overview)
-- [Features](#-features)
-- [Prerequisites](#-prerequisites)
-- [Quick Start](#-quick-start)
-- [Usage](#-usage)
-- [Configuration](#️-configuration)
-- [Gotify Notifications](#-gotify-notifications)
-- [Development](#-development)
-- [Troubleshooting](#-troubleshooting)
-- [Contributing](#-contributing)
+## Table of Contents
+- [Overview](#overview)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Gotify Notifications](#gotify-notifications)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
 - [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md)
-- [License](#-license)
+- [License](#license)
 
 > [!IMPORTANT]
 > To enable scaling of VM resources, make sure NUMA and hotplug features are enabled:
@@ -27,25 +27,26 @@ The service supports multiple Proxmox hosts via SSH connections and can be easil
 > - **Enable CPU Hotplug**: VM > Options > Hotplug > CPU ☑️
 > - **Enable Memory Hotplug**: VM > Options > Hotplug > Memory ☑️
 
-## ✨ Features
-- 🔄 **Auto-scaling of VM CPU and RAM** based on real-time resource metrics.
-- 🛠️ **Configuration-driven** setup using an easy-to-edit YAML file.
-- 🌐 **Multi-host support** via SSH (compatible with both password and key-based authentication).
-- 📲 **Gotify Notifications** for alerting you whenever scaling actions are performed.
-- ⚙️ **Systemd Integration** for effortless setup, management, and monitoring as a Linux service.
-- 🔥 **Auto-Hotplug Configuration** - Automatically enables hotplug and NUMA on VMs for seamless live scaling.
-- 💰 **Billing Support** - Track resource usage and generate billing reports for web hosting providers.
+## Features
+- **Auto-scaling of VM CPU and RAM** based on real-time resource metrics.
+- **Configuration-driven** setup via a YAML file.
+- **Multi-host support** via SSH (password or key-based authentication).
+- **Gotify notifications** when scaling actions are performed.
+- **Email notifications** via SMTP (optional).
+- **Systemd integration** for service management and monitoring.
+- **Auto-hotplug configuration** - Attempts to enable hotplug and NUMA on VMs to support live scaling. Note: core count changes and NUMA changes still require a VM restart to take full effect.
+- **Billing tracking** - Records resource usage and generates CSV billing reports (optional, intended for hosting providers).
 
-## 📋 Prerequisites
-- 🖥️ **Proxmox VE** 6.0 or higher must be installed on the target hosts
-- 🐍 **Python 3.6+** installed on the machine running the autoscale service
-- 🔑 **SSH access** to Proxmox hosts (password or key-based authentication)
-- 📦 **Python packages**: `paramiko`, `PyYAML`, `requests` (installed automatically)
-- 💻 Basic familiarity with Proxmox `qm` commands and SSH configuration
-- ⚙️ **NUMA and Hotplug** features enabled on target VMs (auto-configured by default, see below)
+## Prerequisites
+- **Proxmox VE** 6.0 or higher on the target hosts
+- **Python 3.6+** on the machine running the autoscale service
+- **SSH access** to Proxmox hosts (password or key-based authentication)
+- **Python packages**: `paramiko`, `PyYAML`, `requests` (see `requirements.txt`)
+- Basic familiarity with Proxmox `qm` commands and SSH configuration
+- NUMA and hotplug features enabled on target VMs (can be auto-configured, see below)
 
-## 🤝 Contributing
-Contributions are **more than** welcome! If you encounter a bug or have suggestions for improvement, please [open an issue](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/new/choose) or submit a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+## Contributing
+Contributions are welcome. If you encounter a bug or have suggestions for improvement, please [open an issue](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/new/choose) or submit a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ### Contributors
 Code improvements by: **[Specimen67](https://github.com/Specimen67)**, **[brianread108](https://github.com/brianread108)**
@@ -53,15 +54,15 @@ Code improvements by: **[Specimen67](https://github.com/Specimen67)**, **[brianr
 ### Want to scale LXC containers instead of VMs on Proxmox hosts?
 To autoscale LXC containers on Proxmox hosts, check out [this related project](https://github.com/fabriziosalmi/proxmox-lxc-autoscale).
 
-## 🚀 Quick Start
+## Quick Start
 
-To install **Proxmox VM Autoscale**, execute the following `curl bash` command. This command will automatically clone the repository, execute the installation script, and set up the service for you:
+To install **Proxmox VM Autoscale**, run the following command. This will clone the repository, execute the installation script, and set up the service:
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autoscale/main/install.sh)
 ```
 
-🎯 **This installation script will:**
+This installation script will:
 - Clone the repository into `/usr/local/bin/vm_autoscale`
 - Copy all necessary files to the installation directory
 - Install the required Python dependencies from `requirements.txt`
@@ -80,9 +81,9 @@ systemctl start vm_autoscale.service
 > [!IMPORTANT]
 > Make sure to review the official [Proxmox documentation](https://pve.proxmox.com/wiki/Hotplug_(qemu_disk,nic,cpu,memory)) for the hotplug feature requirements to enable scaling virtual machines on the fly.
 
-## ⚡ Usage
+## Usage
 
-### ▶️ Start/Stop the Service
+### Start/Stop the Service
 To **start** the autoscaling service:
 
 ```bash
@@ -95,14 +96,14 @@ To **stop** the service:
 systemctl stop vm_autoscale.service
 ```
 
-### 🔍 Check the Status
+### Check the Status
 To view the service status:
 
 ```bash
 systemctl status vm_autoscale.service
 ```
 
-### 📜 Logs
+### Logs
 Logs are saved to `/var/log/vm_autoscale.log`. You can monitor the logs in real-time using:
 
 ```bash
@@ -115,9 +116,9 @@ Or by using `journalctl`:
 journalctl -u vm_autoscale.service -f
 ```
 
-## ⚙️ Configuration
+## Configuration
 
-The configuration file (`config.yaml`) is located at `/usr/local/bin/vm_autoscale/config.yaml`. This file contains settings for scaling thresholds, resource limits, Proxmox hosts, and VM information.
+The configuration file (`config.yaml`) is located at `/usr/local/bin/vm_autoscale/config.yaml`. It contains settings for scaling thresholds, resource limits, Proxmox hosts, and VM information.
 
 ### Example Configuration
 ```yaml
@@ -167,6 +168,7 @@ host_limits:
   max_host_ram_percent: 90  # Don't scale if host RAM > 90%
 
 # Auto-configure hotplug and NUMA for live scaling
+# Note: core count and NUMA changes still require a VM restart to take effect
 auto_configure_hotplug: true  # Set to false to disable auto-configuration
 
 # Optional: Gotify notifications
@@ -175,6 +177,15 @@ gotify:
   server_url: https://gotify.example.com
   app_token: your_gotify_app_token_here
   priority: 5
+
+# Optional: Email (SMTP) notifications
+alerts:
+  email_enabled: false
+  email_recipient: admin@example.com
+  smtp_server: smtp.example.com
+  smtp_port: 587
+  smtp_user: your_smtp_user
+  smtp_password: your_smtp_password
 
 # Optional: Billing for web hosters
 billing:
@@ -187,20 +198,20 @@ billing:
   webhook_url: ""                      # Optional: POST to URL
 ```
 
-### ⚙️ Configuration Details
+### Configuration Details
 - **`scaling_thresholds`**: Defines the CPU and RAM usage thresholds that trigger scaling actions (e.g., when CPU > 80%, scale up)
-- **`scaling_limits`**: Specifies the **minimum** and **maximum** resources (CPU cores and RAM in MB) each VM can have
+- **`scaling_limits`**: Specifies the minimum and maximum resources (CPU cores and RAM in MB) each VM can have
 - **`check_interval`**: Time in seconds between resource checks (default: 300 seconds / 5 minutes)
-- **`proxmox_hosts`**: Contains details of Proxmox hosts, including SSH credentials and connection settings
-- **`virtual_machines`**: Lists the VMs to be managed by the autoscaling script, allowing per-VM scaling customization
-- **`logging`**: Specifies the logging level and log file path for activity tracking and debugging
-- **`auto_configure_hotplug`**: When enabled (default), automatically configures hotplug and NUMA on VMs for live scaling
-- **`gotify`**: Configures **Gotify notifications** to send alerts when scaling actions are performed
-- **`billing`**: Tracks resource changes for billing purposes (ideal for web hosters)
-- **`alerts`**: Email notification settings (optional) for scaling events
+- **`proxmox_hosts`**: Details of Proxmox hosts, including SSH credentials and connection settings
+- **`virtual_machines`**: Lists the VMs to be managed, allowing per-VM scaling configuration
+- **`logging`**: Specifies the logging level and log file path
+- **`auto_configure_hotplug`**: When enabled (default), attempts to configure hotplug and NUMA on VMs. Core count changes and NUMA changes require a VM restart to take effect.
+- **`gotify`**: Configures Gotify push notifications for scaling events
+- **`alerts`**: Configures SMTP email notifications for scaling events (optional)
 - **`host_limits`**: Safety thresholds to prevent scaling when host resources are constrained
+- **`billing`**: Tracks resource changes for billing purposes (intended for hosting providers)
 
-## 💰 Billing for Web Hosters
+## Billing for Web Hosters
 
 For bulk web hosters offering dynamic pricing, the billing feature tracks:
 - **Resource changes**: CPU cores and RAM changes with timestamps
@@ -217,37 +228,37 @@ When enabled, billing reports are generated as CSV files in the configured outpu
 - List of all spec changes
 - Calculated total cost
 
-## 📲 Gotify Notifications
+## Gotify Notifications
 Gotify is used to send real-time notifications regarding scaling actions. Configure Gotify in the `config.yaml` file:
 - **`enabled`**: Set to `true` to enable notifications
 - **`server_url`**: URL of the Gotify server (e.g., `https://gotify.example.com`)
 - **`app_token`**: Authentication token for accessing Gotify API
 - **`priority`**: Notification priority level (1-10, where 10 is highest priority)
 
-## 👨‍💻 Development
+## Development
 
-### 📐 Architecture
+### Architecture
 For a detailed understanding of the system architecture, components, and data flow, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-### 🔧 Requirements
+### Requirements
 - **Python 3.6 or higher**
-- Required Python Packages: `paramiko`, `requests`, `PyYAML`
+- Required Python packages: `paramiko`, `requests`, `PyYAML`
 
-### 📦 Installing Dependencies
+### Installing Dependencies
 To install dependencies manually:
 
 ```bash
 pip3 install -r /usr/local/bin/vm_autoscale/requirements.txt
 ```
 
-### 🐛 Running Manually
+### Running Manually
 To run the script manually for debugging or testing:
 
 ```bash
 python3 /usr/local/bin/vm_autoscale/autoscale.py
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues and Solutions
 
@@ -287,16 +298,16 @@ If you encounter issues not covered here:
    - Relevant log excerpts
    - Proxmox version and VM configuration
 
-### Others projects
+### Other projects
 
-If you like my projects, you may also be interested in these:
+If you are interested in related projects:
 
 - [caddy-waf](https://github.com/fabriziosalmi/caddy-waf) Caddy WAF (Regex Rules, IP and DNS filtering, Rate Limiting, GeoIP, Tor, Anomaly Detection) 
 - [patterns](https://github.com/fabriziosalmi/patterns) Automated OWASP CRS and Bad Bot Detection for Nginx, Apache, Traefik and HaProxy
-- [blacklists](https://github.com/fabriziosalmi/blacklists) Hourly updated domains blacklist 🚫 
+- [blacklists](https://github.com/fabriziosalmi/blacklists) Hourly updated domains blacklist
 - [UglyFeed](https://github.com/fabriziosalmi/UglyFeed) Retrieve, aggregate, filter, evaluate, rewrite and serve RSS feeds using Large Language Models for fun, research and learning purposes 
 - [proxmox-lxc-autoscale](https://github.com/fabriziosalmi/proxmox-lxc-autoscale) Automatically scale LXC containers resources on Proxmox hosts 
-- [DevGPT](https://github.com/fabriziosalmi/DevGPT) Code together, right now! GPT powered code assistant to build projects in minutes
+- [DevGPT](https://github.com/fabriziosalmi/DevGPT) GPT powered code assistant to build projects
 - [websites-monitor](https://github.com/fabriziosalmi/websites-monitor) Websites monitoring via GitHub Actions (expiration, security, performances, privacy, SEO)
 - [caddy-mib](https://github.com/fabriziosalmi/caddy-mib) Track and ban client IPs generating repetitive errors on Caddy 
 - [zonecontrol](https://github.com/fabriziosalmi/zonecontrol) Cloudflare Zones Settings Automation using GitHub Actions 
@@ -309,11 +320,11 @@ If you like my projects, you may also be interested in these:
 - [iamnotacoder](https://github.com/fabriziosalmi/iamnotacoder) AI code generation and improvement
 
 
-### ⚠️ Disclaimer
+### Disclaimer
 > [!CAUTION]
 > The author assumes no responsibility for any damage or issues that may arise from using this tool.
 
-### 📜 License
+### License
 This project is licensed under the **MIT License**. See the LICENSE file for complete details.
 
 
