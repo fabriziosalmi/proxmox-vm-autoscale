@@ -1,8 +1,8 @@
 # Contributing to Proxmox VM Autoscale
 
-Thank you for your interest in contributing to Proxmox VM Autoscale! We appreciate pull requests, bug reports, and feature suggestions.
+Thank you for your interest in contributing to Proxmox VM Autoscale. Pull requests, bug reports, and feature suggestions are welcome.
 
-## 🚀 Quick Start for Contributors
+## Quick Start for Contributors
 
 ### Prerequisites
 - Python 3.6 or higher
@@ -28,7 +28,7 @@ Thank you for your interest in contributing to Proxmox VM Autoscale! We apprecia
    - Copy `config.yaml` and update with your test environment details
    - Ensure SSH access to your test Proxmox host(s)
 
-## 📝 How to Contribute
+## How to Contribute
 
 ### Reporting Bugs
 - Use the [GitHub Issues](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/new/choose) page
@@ -82,7 +82,7 @@ Thank you for your interest in contributing to Proxmox VM Autoscale! We apprecia
    - Reference any related issues
    - Explain what changes were made and why
 
-## 🧪 Testing Guidelines
+## Testing Guidelines
 
 ### Manual Testing
 - Test with different VM configurations
@@ -98,7 +98,7 @@ Before submitting a PR, ensure:
 - [ ] Configuration changes are documented
 - [ ] No sensitive information is committed
 
-## 📏 Coding Standards
+## Coding Standards
 
 ### Python Style
 - Follow [PEP 8](https://www.python.org/dev/peps/pep-0008/) guidelines
@@ -118,14 +118,14 @@ Before submitting a PR, ensure:
 - Add inline comments for complex logic
 - Update CHANGELOG if the project has one
 
-## 🔒 Security Considerations
+## Security Considerations
 
 - Never commit credentials or sensitive data
 - Sanitize logs and examples of any private information
 - Report security vulnerabilities privately to the maintainers
 - Follow secure coding practices
 
-## 📋 Branch Naming Convention
+## Branch Naming Convention
 
 - `feature/description` - For new features
 - `fix/description` - For bug fixes
@@ -133,17 +133,17 @@ Before submitting a PR, ensure:
 - `refactor/description` - For code refactoring
 - `test/description` - For adding or updating tests
 
-## 🎯 Need Help?
+## Need Help?
 
 If you need assistance:
 - Check existing issues and discussions
 - Ask questions in your PR or issue
 - Be patient and respectful
 
-## 📜 License
+## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
 
 ---
 
-Thank you for contributing to Proxmox VM Autoscale! Your efforts help make this project better for everyone. 🎉
+Thank you for contributing to Proxmox VM Autoscale.

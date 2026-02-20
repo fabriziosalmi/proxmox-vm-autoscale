@@ -1,6 +1,6 @@
 # Architecture Overview
 
-## 📐 System Architecture
+## System Architecture
 
 Proxmox VM Autoscale is designed as a monitoring and control service that runs continuously, checking VM resource usage and making scaling decisions based on configured thresholds.
 
@@ -51,7 +51,7 @@ Proxmox VM Autoscale is designed as a monitoring and control service that runs c
           └──────────────────────────────────┘
 ```
 
-## 🏗️ Component Breakdown
+## Component Breakdown
 
 ### Core Components
 
@@ -104,7 +104,7 @@ Proxmox VM Autoscale is designed as a monitoring and control service that runs c
 - Blocks VM scaling if host is above configured limits
 - Prevents resource exhaustion on Proxmox hosts
 
-## 🔄 Operation Flow
+## Operation Flow
 
 ### Monitoring Loop
 
@@ -178,7 +178,7 @@ Proxmox VM Autoscale is designed as a monitoring and control service that runs c
              └─→ Send notification
 ```
 
-## 📁 File Structure
+## File Structure
 
 ```
 /usr/local/bin/vm_autoscale/
@@ -192,7 +192,7 @@ Proxmox VM Autoscale is designed as a monitoring and control service that runs c
 └── vm_autoscale.service      # Systemd service definition
 ```
 
-## 🔐 Security Model
+## Security Model
 
 1. **Authentication**: 
    - SSH key-based (preferred) or password authentication
@@ -206,7 +206,7 @@ Proxmox VM Autoscale is designed as a monitoring and control service that runs c
    - Direct SSH connections to Proxmox hosts
    - No external API dependencies (except optional Gotify)
 
-## 📊 Data Flow
+## Data Flow
 
 ### Configuration Data
 ```
@@ -222,7 +222,7 @@ Proxmox Host → SSH → VMResourceManager → Decision Logic → Proxmox Host
                                     Gotify/Email/Logs
 ```
 
-## 🔧 Extension Points
+## Extension Points
 
 ### Adding New Features
 
@@ -242,24 +242,21 @@ Proxmox Host → SSH → VMResourceManager → Decision Logic → Proxmox Host
    - Implement graduated scaling amounts based on severity
    - Add configuration for scaling tiers
 
-## 🧪 Testing Strategy
+## Testing
 
 ### Manual Testing
 - Test with actual Proxmox VMs in a lab environment
 - Verify scaling behavior under different load conditions
 - Test notification delivery
 
-### Unit Testing (Future)
-- Mock SSH connections for unit tests
-- Test scaling logic with various threshold combinations
-- Validate configuration parsing
+### Automated Tests
+Unit tests are located in the `tests/` directory and cover billing logic and VM hotplug configuration. Run them with:
 
-### Integration Testing (Future)
-- End-to-end tests with test VMs
-- Verify cooldown periods
-- Test error recovery mechanisms
+```bash
+python3 -m pytest tests/
+```
 
-## 🚀 Deployment Architecture
+## Deployment Architecture
 
 ### Typical Deployment
 
@@ -287,15 +284,6 @@ Proxmox Host → SSH → VMResourceManager → Decision Logic → Proxmox Host
 
 ### Alternative: On-Host Deployment
 The service can also run directly on a Proxmox host to manage local VMs, though multi-host management requires external deployment.
-
-## 🔮 Future Architecture Considerations
-
-1. **Database Backend**: Store historical metrics for trend analysis
-2. **Web UI**: Real-time dashboard for monitoring and configuration
-3. **Multi-node Clustering**: HA deployment with failover
-4. **API Interface**: RESTful API for external integrations
-5. **Webhook Support**: Trigger scaling from external systems
-6. **Machine Learning**: Predictive scaling based on historical patterns
 
 ---
 
