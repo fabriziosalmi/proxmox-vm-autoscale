@@ -53,12 +53,9 @@ class HostResourceChecker:
             memory_data = data['memory']
             total_mem = memory_data.get('total', 1)  # Avoid division by zero
             used_mem = memory_data.get('used', 0)
-            cached_mem = memory_data.get('cached', 0)
-            free_mem = memory_data.get('free', 0)
-            
-            # Calculate RAM usage as a percentage
-            available_mem = free_mem + cached_mem
-            host_ram_usage = ((total_mem - available_mem) / total_mem) * 100
+
+            # Calculate RAM usage based on 'used' (excludes buff/cache, matches Proxmox WebUI)
+            host_ram_usage = (used_mem / total_mem) * 100
             
             # Log resource usage
             self.logger.info(f"Host CPU Usage: {host_cpu_usage:.2f}%, "
