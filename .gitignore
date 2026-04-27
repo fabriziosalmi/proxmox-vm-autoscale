@@ -1,2 +1,18 @@
-__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.coverage
+
+# IDEs and OS
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
+
+# Logs and config
+*.log
+config.local.yaml
