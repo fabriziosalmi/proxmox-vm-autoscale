@@ -1,0 +1,15 @@
+# Dependabot configuration — https://docs.github.com/code-security/dependabot
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      pip:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
