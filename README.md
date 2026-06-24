@@ -1,4 +1,5 @@
 # Proxmox VM Autoscale
+[![CI](https://github.com/fabriziosalmi/proxmox-vm-autoscale/actions/workflows/ci.yml/badge.svg)](https://github.com/fabriziosalmi/proxmox-vm-autoscale/actions/workflows/ci.yml)
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale?ref=badge_shield)
 
 ## Overview
