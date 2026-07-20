@@ -46,6 +46,10 @@ The service connects to Proxmox hosts over SSH and runs as a **systemd** service
 - Basic familiarity with Proxmox `qm` commands and SSH configuration
 - NUMA and hotplug features enabled on target VMs (can be auto-configured, see below)
 
+## Commercial support & consulting
+
+Running this on your Proxmox fleet? I offer paid support, custom development, and consulting - infrastructure automation, hardening, and monitoring & detection. Reach out: **fabrizio.salmi@gmail.com**.
+
 ## Contributing
 Contributions are welcome. If you encounter a bug or have suggestions for improvement, please [open an issue](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/new/choose) or submit a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
