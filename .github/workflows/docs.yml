@@ -59,6 +59,9 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: docs/.vitepress/dist
+          # v5 defaults this to false, which silently drops .well-known/ from
+          # the tarball and 404s security.txt on the deployed site.
+          include-hidden-files: true
 
   deploy:
     needs: build
@@ -69,3 +72,26 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+
+      # Verifying the built directory is not enough: the artifact step can drop
+      # files between build and publish. Check what is actually being served.
+      - name: Smoke-test the deployed site
+        env:
+          BASE: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          sleep 10
+          fail=0
+          for path in "" "guide/" "reference/configuration.html" "privacy.html" \
+                      "sitemap.xml" "robots.txt" "llms.txt" \
+                      ".well-known/security.txt" "favicon.svg"; do
+            url="${BASE%/}/$path"
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 "$url")
+            if [ "$code" = "200" ]; then
+              printf '  %-34s %s\n' "/$path" "$code"
+            else
+              printf '  %-34s %s  <-- FAILED\n' "/$path" "$code"
+              fail=1
+            fi
+          done
+          exit "$fail"
