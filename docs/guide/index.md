@@ -50,7 +50,7 @@ Being explicit about this saves a lot of disappointment:
 ## Requirements
 
 - **Proxmox VE 6.0 or newer** on the target nodes.
-- **Python 3.9 or newer** on the machine running the service. (CI tests 3.9 through 3.12. The README's older "3.6+" claim is not backed by any test run.)
+- **Python 3.10 or newer** on the machine running the service. CI tests 3.10 through 3.12. (Python 3.9 was dropped once `requests` stopped supporting it; 3.9 itself reached end of life in October 2025.)
 - **`paramiko`, `PyYAML`, `requests`** — see `requirements.txt`.
 - **SSH reachability** from the service to every node in the config.
 

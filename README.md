@@ -30,7 +30,7 @@ With hotplug and NUMA enabled on a guest, vCPU and balloon memory changes apply 
 ## Requirements
 
 - Proxmox VE 6.0 or newer on the target nodes
-- Python 3.9 or newer (CI tests 3.9 – 3.12)
+- Python 3.10 or newer (CI tests 3.10 – 3.12)
 - SSH access to each node as a user who can run `qm set` — in practice `root`
 - `paramiko`, `PyYAML`, `requests`
 

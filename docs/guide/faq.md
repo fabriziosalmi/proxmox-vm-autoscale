@@ -119,7 +119,9 @@ It is a small single-process service with 118 unit tests, run by its author and 
 
 ### What Python version?
 
-3.9 or newer. CI tests 3.9 through 3.12.
+3.10 or newer. CI tests 3.10 through 3.12.
+
+Python 3.9 was dropped once `requests` stopped supporting it: 3.9 reached end of life in October 2025, and the only Proxmox release shipping it — VE 7 — has been end of life since July 2024.
 
 ### Which version should I run?
 

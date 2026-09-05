@@ -162,4 +162,4 @@ Realistic places to add behaviour without restructuring:
 python3 -m pytest tests/ -q
 ```
 
-CI runs the suite on Python 3.9–3.12 and `shellcheck -S warning` on `install.sh`.
+CI runs the suite on Python 3.10–3.12 and `shellcheck -S warning` on `install.sh`.

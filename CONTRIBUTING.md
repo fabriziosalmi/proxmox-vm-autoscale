@@ -5,7 +5,7 @@ Thank you for your interest in contributing to Proxmox VM Autoscale. Pull reques
 ## Quick Start for Contributors
 
 ### Prerequisites
-- Python 3.6 or higher
+- Python 3.10 or higher
 - Git installed and configured
 - Access to a Proxmox VE environment for testing (optional but recommended)
 

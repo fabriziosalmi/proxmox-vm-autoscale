@@ -52,7 +52,7 @@ const jsonLd = {
       description: DESCRIPTION,
       codeRepository: REPO,
       programmingLanguage: 'Python',
-      runtimePlatform: 'Python 3.9+',
+      runtimePlatform: 'Python 3.10+',
       author: { '@id': SITE_URL + '#author' },
       license: 'https://opensource.org/licenses/MIT',
       isAccessibleForFree: true
@@ -65,7 +65,7 @@ const jsonLd = {
       applicationCategory: 'DeveloperApplication',
       applicationSubCategory: 'Infrastructure automation',
       operatingSystem: 'Linux (Debian/Proxmox VE)',
-      softwareRequirements: 'Python 3.9+, Proxmox VE 6.0+, SSH access',
+      softwareRequirements: 'Python 3.10+, Proxmox VE 6.0+, SSH access',
       url: SITE_URL,
       downloadUrl: REPO + '/releases',
       softwareHelp: SITE_URL + 'guide/',
