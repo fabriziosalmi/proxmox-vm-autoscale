@@ -1,6 +1,7 @@
 # Dependabot configuration — https://docs.github.com/code-security/dependabot
 version: 2
 updates:
+  # Runtime dependencies of the service itself.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -8,6 +9,36 @@ updates:
     open-pull-requests-limit: 5
     groups:
       pip:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Actions used by the CI and Pages workflows. Previously unwatched, so the
+  # pinned action majors never received updates.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Documentation toolchain. Build-time only — it never ships to users — but it
+  # still surfaces advisories on the default branch.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      docs-toolchain:
         patterns:
           - "*"
         update-types:
