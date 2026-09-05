@@ -56,7 +56,7 @@ Raised for missing sections and incomplete channel configuration.
 ### `class VMResourceManager`
 
 ```python
-VMResourceManager(ssh_client, vm_id, config: dict)
+VMResourceManager(ssh_client, vm_id, config: dict, vm_config: dict | None = None)
 ```
 
 Runs hotplug auto-configuration in the constructor when `auto_configure_hotplug` is true.
@@ -75,8 +75,10 @@ Runs hotplug auto-configuration in the constructor when `auto_configure_hotplug`
 
 | Method | Purpose |
 |---|---|
+| `_run(command, check=True, mutating=False)` | Runs a command; raises `CommandFailed` on a non-zero exit, and refuses mutating commands under `dry_run` |
+| `_unpack(result)` | Normalises an SSH result into `(stdout, stderr, exit_status)` |
 | `_mark_scaled(resource)` | Starts the cooldown for that resource |
-| `_scaling_limit(key, legacy_key, default)` | `scaling_limits` → flat key → default |
+| `_scaling_limit(key, legacy_key, default)` | Per-VM `scaling_limits` → global `scaling_limits` → flat key → default |
 | `_get_min_cores` / `_get_max_cores` | Resolved limits |
 | `_get_min_ram` / `_get_max_ram` | Resolved limits, MB |
 | `_get_current_cores` / `_get_current_vcpus` / `_get_current_ram` | Parsed from `qm config` |
@@ -122,6 +124,34 @@ HostResourceChecker(ssh_client)
 | `check_host_resources` | `(max_cpu_pct, max_ram_pct) -> bool` | `True` when both are within limits. Raises on JSON or field errors |
 
 RAM is `memory.used / memory.total`, matching the Proxmox web UI.
+
+## `metrics.py`
+
+Prometheus text exposition over `http.server`, in a daemon thread. No third-party
+dependency.
+
+### `class MetricsRegistry`
+
+| Method | Signature | Notes |
+|---|---|---|
+| `describe` | `(name, kind, help_text) -> None` | Registers `# HELP` / `# TYPE` |
+| `inc` | `(name, labels=None, amount=1.0) -> None` | Counter |
+| `set` | `(name, value, labels=None) -> None` | Gauge |
+| `unset` | `(name, labels=None) -> None` | Drops a series — used when a metric is unreadable |
+| `render` | `() -> str` | Exposition format |
+
+### `class MetricsServer`
+
+```python
+MetricsServer(registry, logger, bind="127.0.0.1", port=9808, path="/metrics")
+```
+
+`start()` returns `False` rather than raising when the port cannot be bound; a
+metrics endpoint is not worth taking the autoscaler down for. `stop()` shuts the
+thread down.
+
+`build_registry()` returns a registry with every metric this service reports
+already described.
 
 ## `billing_tracker.py`
 

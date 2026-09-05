@@ -23,6 +23,7 @@ import paramiko
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from metrics import build_registry
 from autoscale import VMAutoscaler
 from billing_tracker import BillingTracker, SpecChangeRecord, StateChangeRecord
 from ssh_utils import SSHClient
@@ -43,6 +44,8 @@ def bare_autoscaler(config):
     a.billing_tracker = None
     a._vm_managers = {}
     a._vm_states = {}
+    a.dry_run = False
+    a.metrics = build_registry()
     return a
 
 

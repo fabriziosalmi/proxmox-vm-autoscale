@@ -33,7 +33,6 @@ Being explicit about this saves a lot of disappointment:
 - **No LXC containers.** Use the sibling project [proxmox-lxc-autoscale](https://github.com/fabriziosalmi/proxmox-lxc-autoscale) for those.
 - **No disk, network or GPU scaling.** CPU cores, vCPUs and memory only.
 - **No prediction or trend analysis.** Decisions come from a single instantaneous sample per cycle. There is no smoothing, no moving average and no seasonality — a one-off spike between two polls is invisible, and a spike caught by a poll is acted on immediately.
-- **No dry-run mode.** If the service is running and a threshold is crossed, `qm set` is executed.
 - **No high availability.** It is a single process. If it dies, systemd restarts it and the in-memory cooldown state starts over.
 
 ## Assumptions it makes

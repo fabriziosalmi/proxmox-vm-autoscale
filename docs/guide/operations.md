@@ -142,9 +142,103 @@ Per resource:
 
 Everything at once: `systemctl stop vm_autoscale.service`.
 
-## Monitoring the autoscaler itself
+## Dry run
 
-The service exposes no metrics endpoint and no health check. Practical options:
+```yaml
+dry_run: true
+```
+
+Everything is evaluated and nothing is changed. No command that touches a VM is
+issued — including hotplug auto-configuration — the log records what would have
+happened, notifications carry a `[DRY RUN]` prefix, and billing records nothing,
+because nothing changed.
+
+```
+[WARNING] DRY RUN: no command that changes a VM will be issued.
+[INFO]    VM 101 current usage - CPU: 91.20%, RAM: 44.10%
+[INFO]    [dry-run] VM 101: would run `qm set 101 -vcpus 3`
+```
+
+Reads still happen, so what you see is a real evaluation against real usage,
+and the cooldown still applies — the cadence in the log is the cadence you
+would get. This is the right way to start on a fleet you did not build.
+
+## Metrics
+
+An optional Prometheus endpoint, **off by default** and bound to localhost when
+enabled:
+
+```yaml
+metrics:
+  enabled: true
+  bind: 127.0.0.1
+  port: 9808
+  path: /metrics
+```
+
+::: danger It has no authentication
+The series name your nodes and VMIDs and report their utilisation, and this
+process holds root credentials for your hypervisors. Leave it on `127.0.0.1`
+and let your scraper reach it over a tunnel, or put a reverse proxy that
+authenticates in front of it. A bind failure is logged and the service carries
+on without it.
+:::
+
+```bash
+curl -s http://127.0.0.1:9808/metrics
+```
+
+| Metric | Type | Labels |
+|---|---|---|
+| `vm_autoscale_up` | gauge | |
+| `vm_autoscale_build_info` | gauge | `dry_run` |
+| `vm_autoscale_cycles_total` | counter | |
+| `vm_autoscale_cycle_duration_seconds` | gauge | |
+| `vm_autoscale_last_cycle_timestamp_seconds` | gauge | |
+| `vm_autoscale_cycle_errors_total` | counter | |
+| `vm_autoscale_vm_running` | gauge | `vm_id` |
+| `vm_autoscale_vm_cpu_percent` | gauge | `vm_id` |
+| `vm_autoscale_vm_ram_percent` | gauge | `vm_id` |
+| `vm_autoscale_vm_errors_total` | counter | `vm_id` |
+| `vm_autoscale_metric_unavailable_total` | counter | `vm_id`, `resource` |
+| `vm_autoscale_scaling_actions_total` | counter | `vm_id`, `resource`, `direction` |
+| `vm_autoscale_scaling_failures_total` | counter | `vm_id`, `resource` |
+| `vm_autoscale_host_cpu_percent` | gauge | `host` |
+| `vm_autoscale_host_ram_percent` | gauge | `host` |
+| `vm_autoscale_host_gate_blocked_total` | counter | `host` |
+
+::: tip Absent is not zero
+`vm_autoscale_vm_cpu_percent` is **removed** for a VM whose CPU could not be
+read, rather than reported as `0`. Emitting a zero would put the same lie into
+your dashboards that it used to put into the scaling decision. Watch
+`vm_autoscale_metric_unavailable_total` for that case.
+:::
+
+Alerts worth having:
+
+```yaml
+# The loop has stopped making progress
+- alert: VMAutoscaleStalled
+  expr: time() - vm_autoscale_last_cycle_timestamp_seconds > 900
+  for: 5m
+
+# A VM's metrics cannot be read, so it is no longer scaling
+- alert: VMAutoscaleMetricUnavailable
+  expr: increase(vm_autoscale_metric_unavailable_total[15m]) > 0
+
+# Scaling is being attempted and failing
+- alert: VMAutoscaleScalingFailures
+  expr: increase(vm_autoscale_scaling_failures_total[15m]) > 0
+
+# Flapping: up and down on the same VM within the hour
+- alert: VMAutoscaleFlapping
+  expr: |
+    increase(vm_autoscale_scaling_actions_total{direction="up"}[1h]) > 2
+    and
+    increase(vm_autoscale_scaling_actions_total{direction="down"}[1h]) > 2
+```
+
+## Monitoring without the endpoint
 
 **Is it alive?**
 

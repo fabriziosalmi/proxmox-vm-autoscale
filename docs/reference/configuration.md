@@ -75,7 +75,19 @@ scaling_limits:
 | `min_ram_mb` | int | `512` | Keep at `1024` or above — NUMA misbehaves below 1 GB |
 | `max_ram_mb` | int | `16384` | |
 
-Limits apply to **every** VM. Per-VM limits are not supported; run separate instances if you need them.
+These are the defaults for every VM. A VM may override any of them in its own
+entry, so a 2-core web server and a 16-core database can share one instance:
+
+```yaml
+virtual_machines:
+  - vm_id: 102
+    scaling_limits:
+      max_cores: 16
+      max_ram_mb: 32768
+```
+
+Resolution order: the VM's own block, then this section, then a flat top-level
+key (older layout), then the built-in default.
 
 ::: warning Behaviour change
 Older versions read these values under names that do not exist in this file, so the defaults above were enforced regardless of what you configured. If you are upgrading, your limits are about to take effect for the first time. Flat top-level `min_cores` / `max_cores` / `min_ram` / `max_ram` keys are still accepted as a fallback for legacy configs.
@@ -141,6 +153,47 @@ virtual_machines:
 | `cpu_scaling` | bool | no | Defaults to `false` |
 | `ram_scaling` | bool | no | Defaults to `false` |
 | `thresholds` | map | no | Per-VM overrides of `scaling_thresholds`. Flat (`cpu_high`, `cpu_low`, `ram_high`, `ram_low`) or nested (`cpu: { high, low }`). Any bound you omit keeps the global value |
+| `scaling_limits` | map | no | Per-VM overrides of the global `scaling_limits`. Same keys; any you omit keep the global value |
+
+## `dry_run`
+
+```yaml
+dry_run: false
+```
+
+| Type | Default | Notes |
+|---|---|---|
+| bool | `false` | Evaluate everything, change nothing |
+
+No command that touches a VM is issued — hotplug auto-configuration included.
+Reads still happen, so the evaluation is real; the cooldown still applies, so
+the cadence in the log is the cadence you would get. Notifications are prefixed
+`[DRY RUN]` and billing records nothing. See [operations](/guide/operations#dry-run).
+
+## `metrics`
+
+```yaml
+metrics:
+  enabled: false
+  bind: 127.0.0.1
+  port: 9808
+  path: /metrics
+```
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | bool | `false` | |
+| `bind` | string | `127.0.0.1` | |
+| `port` | int | `9808` | |
+| `path` | string | `/metrics` | |
+
+::: danger No authentication
+The endpoint has none, and the series name your nodes and VMIDs. Keep it on
+localhost unless something in front of it authenticates. A bind failure is
+logged and the service continues without metrics.
+:::
+
+Full metric list: [operations](/guide/operations#metrics).
 
 ## SSH host key verification
 

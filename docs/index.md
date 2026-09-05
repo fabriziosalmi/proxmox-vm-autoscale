@@ -72,5 +72,5 @@ journalctl -u vm_autoscale.service -f
 ```
 
 ::: warning Read this before running it in production
-The service authenticates to your Proxmox hosts as **root** and issues `qm set` against live guests. Read the [threat model](/security/) and the [known limitations](/reference/limitations) first. There is no dry-run mode.
+The service authenticates to your Proxmox hosts as **root** and issues `qm set` against live guests. Read the [threat model](/security/) and the [known limitations](/reference/limitations) first — and start with `dry_run: true`, which evaluates everything and changes nothing.
 :::
