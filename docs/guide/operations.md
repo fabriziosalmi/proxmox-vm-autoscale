@@ -1,0 +1,201 @@
+---
+title: Operations
+description: Day-to-day operation of the Proxmox VM Autoscale service — systemd control, logging, log rotation, monitoring and safe config changes.
+---
+
+# Operations
+
+## Service control
+
+```bash
+sudo systemctl start   vm_autoscale.service
+sudo systemctl stop    vm_autoscale.service
+sudo systemctl restart vm_autoscale.service
+sudo systemctl status  vm_autoscale.service
+
+sudo systemctl enable  vm_autoscale.service   # start at boot
+sudo systemctl disable vm_autoscale.service
+```
+
+The unit sets `Restart=always`, so systemd brings the process back after a crash. The repository's `vm_autoscale.service` also sets `RestartSec=10`; the unit the installer writes inline does not, which on a crash loop means restarting as fast as systemd permits. Check which one you have:
+
+```bash
+systemctl cat vm_autoscale.service | grep -E 'Restart|ExecStart'
+```
+
+::: tip A restart clears cooldown state
+Cooldown timers live in memory. After a restart the first cycle can scale immediately, regardless of when the last change happened. Restarting repeatedly — during a config edit session, say — removes the rate limiting entirely for that period.
+:::
+
+## Logs
+
+Two sinks, both active:
+
+```bash
+tail -f /var/log/vm_autoscale.log        # file, per logging_config.json
+journalctl -u vm_autoscale.service -f    # stdout, captured by systemd
+```
+
+Useful filters:
+
+```bash
+journalctl -u vm_autoscale.service --since "1 hour ago" -p warning
+grep -E 'Scaled (up|down)' /var/log/vm_autoscale.log
+grep -c 'Scaled up' /var/log/vm_autoscale.log
+journalctl -u vm_autoscale.service --since today | grep 'VM 101'
+```
+
+### Log levels
+
+`logging_config.json` takes precedence over the `logging.level` key in `config.yaml` — the latter is only consulted when the JSON file is absent. As shipped, the file handler writes at `DEBUG` and the console at `INFO`, so `/var/log/vm_autoscale.log` is considerably more verbose than `journalctl`.
+
+To quieten the file, edit `logging_config.json`:
+
+```json
+{
+  "handlers": {
+    "file": { "level": "INFO" }
+  }
+}
+```
+
+Restart the service afterwards; logging is configured once at startup.
+
+### Log rotation
+
+Nothing rotates `/var/log/vm_autoscale.log`. At `DEBUG`, with a large fleet, it grows quickly. Add:
+
+```
+# /etc/logrotate.d/vm_autoscale
+/var/log/vm_autoscale.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+```
+
+`copytruncate` matters: the service holds the file open for its whole lifetime and will keep writing to the rotated inode otherwise.
+
+## Reading the log
+
+| Line | Meaning |
+|---|---|
+| `Host CPU Usage: 12.40%, Host RAM Usage: 61.20%` | Gate 2 passed for this node |
+| `Host pve1 resources maxed out. Skipping scaling.` | Gate 2 blocked; no VM on this node scales this cycle |
+| `VM 101 is not running. Skipping scaling.` | Gate 1 blocked |
+| `VM 101 current usage - CPU: 3.2%, RAM: 41.5%` | The sample the decision is based on |
+| `No CPU scaling required.` | Threshold crossed but a limit was already reached |
+| `Scaled up vCPUs to 3 ... (hotplug applied)` | Live change |
+| `... (requires reboot for full effect)` | Config changed; guest unaffected until reboot |
+| `CPU usage not found in output.` | Metric parse failure — usage falls back to `0.0` |
+| `Error processing VM 101 on host pve1: ...` | Per-VM failure; loop continues |
+
+::: warning `CPU usage not found in output` deserves attention
+It means usage was recorded as `0.0`, which is below every sane `low` threshold, so the next decision is a scale **down**. Left unnoticed, a parsing failure walks every VM down to its minimum. See [troubleshooting](/guide/troubleshooting#usage-always-reads-0).
+:::
+
+## Changing configuration
+
+Config is read once at startup. There is no reload signal.
+
+```bash
+sudo cp /usr/local/bin/vm_autoscale/config.yaml /root/config.yaml.bak
+sudo nano /usr/local/bin/vm_autoscale/config.yaml
+python3 -c "import yaml,sys; yaml.safe_load(open('/usr/local/bin/vm_autoscale/config.yaml'))" \
+  && echo "YAML OK"
+sudo systemctl restart vm_autoscale.service
+journalctl -u vm_autoscale.service -n 30
+```
+
+A malformed config prevents startup:
+
+```
+CRITICAL Failed to start VM Autoscaler: Missing required configuration sections: scaling_limits
+```
+
+Always confirm the service came back up after an edit — `Restart=always` will keep retrying a process that exits immediately on a bad config, and the failure is only visible in the log.
+
+## Pausing scaling
+
+Per VM, without removing its entry:
+
+```yaml
+virtual_machines:
+  - vm_id: 101
+    proxmox_host: pve1
+    scaling_enabled: false
+```
+
+Per resource:
+
+```yaml
+    cpu_scaling: true
+    ram_scaling: false
+```
+
+Everything at once: `systemctl stop vm_autoscale.service`.
+
+## Monitoring the autoscaler itself
+
+The service exposes no metrics endpoint and no health check. Practical options:
+
+**Is it alive?**
+
+```bash
+systemctl is-active vm_autoscale.service
+```
+
+**Is it doing anything?** A healthy service writes at least one host-usage line per cycle. A watchdog on log staleness:
+
+```bash
+#!/bin/bash
+LOG=/var/log/vm_autoscale.log
+AGE=$(( $(date +%s) - $(stat -c %Y "$LOG") ))
+if [ "$AGE" -gt 900 ]; then
+    echo "vm_autoscale log stale: ${AGE}s" >&2
+    exit 1
+fi
+```
+
+**Is it flapping?** Repeated up/down on the same VM means your dead band is too narrow:
+
+```bash
+grep -E 'Scaled (up|down)' /var/log/vm_autoscale.log \
+  | grep 'VM 101' | tail -20
+```
+
+**systemd-native alerting** on failure:
+
+```ini
+# /etc/systemd/system/vm_autoscale.service.d/alert.conf
+[Unit]
+OnFailure=status-email@%n.service
+```
+
+## Backups
+
+Worth keeping:
+
+- `/usr/local/bin/vm_autoscale/config.yaml` — **contains credentials**; encrypt it
+- `/etc/vm_autoscale/config.yaml.backup` — same
+- `/var/log/vm_autoscale/billing/billing_data.json` — if you bill from it
+- `/etc/systemd/system/vm_autoscale.service` and any drop-ins
+
+Never commit `config.yaml` to a repository. `.gitignore` covers `config.local.yaml`, not `config.yaml` — the tracked `config.yaml` is the example, and it is easy to commit a real one over it by accident.
+
+## Running two instances
+
+For different intervals or different host limits per node group:
+
+```bash
+sudo cp -r /usr/local/bin/vm_autoscale /usr/local/bin/vm_autoscale_slow
+sudo cp /etc/systemd/system/vm_autoscale.service \
+        /etc/systemd/system/vm_autoscale_slow.service
+sudo nano /etc/systemd/system/vm_autoscale_slow.service   # point at the new dir
+```
+
+`autoscale.py` hardcodes its config path to `/usr/local/bin/vm_autoscale/config.yaml` in `main()`, so a second instance needs its own copy of the directory rather than just its own config file. Make sure the two instances never manage the same VM: they do not share cooldown state and will fight.

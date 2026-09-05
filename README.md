@@ -2,6 +2,8 @@
 [![CI](https://github.com/fabriziosalmi/proxmox-vm-autoscale/actions/workflows/ci.yml/badge.svg)](https://github.com/fabriziosalmi/proxmox-vm-autoscale/actions/workflows/ci.yml)
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffabriziosalmi%2Fproxmox-vm-autoscale?ref=badge_shield)
 
+📖 **[Full documentation](https://fabriziosalmi.github.io/proxmox-vm-autoscale/)** — installation, configuration reference, troubleshooting, security model and known limitations.
+
 ## Overview
 **Proxmox VM Autoscale** is a service that automatically adjusts virtual machine (VM) resources (CPU cores and RAM) on Proxmox Virtual Environment (VE) based on real-time metrics and user-defined thresholds.
 
@@ -21,6 +23,12 @@ The service connects to Proxmox hosts over SSH and runs as a **systemd** service
 - [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md)
 - [License](#license)
+
+Longer-form guides live on the documentation site: [how scaling decisions are
+made](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/how-it-works.html),
+[configuration reference](https://fabriziosalmi.github.io/proxmox-vm-autoscale/reference/configuration.html),
+[known limitations](https://fabriziosalmi.github.io/proxmox-vm-autoscale/reference/limitations.html)
+and the [threat model](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/).
 
 > [!IMPORTANT]
 > To enable scaling of VM resources, make sure NUMA and hotplug features are enabled:
