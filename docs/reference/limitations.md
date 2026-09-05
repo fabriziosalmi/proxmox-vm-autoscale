@@ -31,31 +31,7 @@ is logged whether or not `qm set` succeeded, and whether or not the guest honour
 
 **Workaround:** verify with `qm config <vmid>` when a change matters.
 
-### Per-VM `thresholds` are ignored
-
-`config.yaml` shows a `thresholds:` block inside each `virtual_machines` entry. Nothing reads it — only the global `scaling_thresholds` is consulted.
-
-**Impact:** you may believe a VM has bespoke thresholds when it does not.
-
-**Workaround:** run a second instance with its own config for a VM that genuinely needs different numbers.
-
-### Downtime is billed as uptime
-
-`BillingTracker._calculate_resource_cost` accepts the uptime records and never uses them, despite an in-code comment saying cost is charged for uptime only. Compounding this, nothing in the service calls `record_vm_state_change`, so there are no uptime records to begin with — every report shows 100% uptime.
-
-**Impact:** a VM powered off for a week is billed for that week at its last known spec.
-
-**Workaround:** reconcile against your own uptime source before invoicing.
-
 ## Documented-but-absent behaviour
-
-### Billing reports are not generated automatically
-
-Enabling `billing` wires up exactly one thing: recording a spec change after each successful scaling action. `generate_period_report`, `export_csv`, `run_webhook`, `record_vm_state_change` and `set_vm_name` are public API that nothing calls.
-
-**Impact:** no CSV appears, no webhook fires, no uptime is tracked.
-
-**Workaround:** the [billing page](/guide/billing#generating-a-report) has a script that calls the API on a schedule.
 
 ### `logging` in `config.yaml` is inert by default
 
@@ -89,12 +65,6 @@ Fixed at 1 core and 512 MB per action, in `vm_manager.py`. Recovering from a lar
 
 One process, no leader election, no shared state. Two instances managing the same VM will fight, since neither sees the other's cooldowns.
 
-### `ssh_port` is read unconditionally
-
-`host['ssh_port']` is indexed directly rather than via `.get()`, so a host entry without that key raises `KeyError` and every VM on it fails. The shipped example config omits it on `host2`.
-
-**Workaround:** set `ssh_port` on every host.
-
 ### `ssh_password` silently overrides `ssh_key`
 
 When both are present the password is used. The shipped example fills in both with placeholders.
@@ -109,11 +79,11 @@ Ed25519, ECDSA, RSA and DSS key types all load, but there is no passphrase optio
 
 **Workaround:** protect the key with file permissions and a `from=` restriction in `authorized_keys` instead.
 
-### SSH host keys are accepted automatically
+### Host key trust is first-use, not pre-shared
 
-The client uses an auto-add policy: any host key is trusted on first contact and no pinning is performed. An attacker positioned between the service and a node can present their own key and receive your root credentials.
+The default `accept-new` policy records a node's host key the first time it is seen and refuses to connect if that key later changes. That closes the window on everything after the first connection, but the first connection itself is still trust-on-first-use: an attacker already in position at that moment would be recorded as legitimate.
 
-**Workaround:** the [hardening guide](/security/hardening#pin-ssh-host-keys) shows how to constrain this at the network and configuration level.
+**Workaround:** pre-populate `ssh_known_hosts` with `ssh-keyscan` before the first run and set `ssh_host_key_policy: strict`. See the [hardening guide](/security/hardening#verify-ssh-host-keys).
 
 ### Credentials are stored in plain text
 

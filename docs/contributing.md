@@ -34,7 +34,7 @@ pytest tests/test_vm_hotplug.py -v           # one file
 pytest -k cooldown -v                        # by name
 ```
 
-138 tests, under a second. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
+170 tests, under a second. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
 
 ## What a good change looks like
 
@@ -94,13 +94,12 @@ Pulled from [known limitations](/reference/limitations), roughly by value:
 
 | Area | What is needed |
 |---|---|
-| **Metric parsing** | Replace the `pvesh` table scrape with `--output-format json`. Removes a whole class of silent failure |
-| **Non-RSA SSH keys** | Load Ed25519 and ECDSA keys, not just RSA |
-| **Billing reporting** | Wire `generate_period_report` into the loop on a period boundary; make the cost calculation honour uptime |
-| **Per-VM thresholds** | The config already shows them; the code does not read them |
-| **Host key verification** | Replace the auto-add policy with something verifiable |
-| **Dry-run mode** | Log what would happen without issuing commands |
+| **Dry-run mode** | Log what would happen without issuing commands. The most requested missing safety net |
+| **Command result checking** | `qm set` failures are logged as successes because `execute_command` does not raise on a non-zero exit |
 | **Metrics endpoint** | Prometheus exposition for cycle count, decisions, failures |
+| **Per-VM scaling limits** | `scaling_limits` is global; thresholds are now per-VM but limits are not |
+| **Encrypted SSH keys** | A passphrase option, or ssh-agent support |
+| **Configurable step sizes** | Fixed at 1 core and 512 MB |
 
 ## Reporting bugs
 

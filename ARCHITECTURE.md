@@ -83,7 +83,7 @@ them. The only durable state the service writes is the billing JSON file.
 
 ## Tests
 
-138 unit tests in `tests/`, run with `pytest`. SSH is mocked throughout, so
+170 unit tests in `tests/`, run with `pytest`. SSH is mocked throughout, so
 anything depending on real `pvesh` output format is not covered by CI.
 
 ```bash

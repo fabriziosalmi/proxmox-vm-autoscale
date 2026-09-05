@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Per-VM `thresholds` are read.** The block has been in the example
+  `config.yaml` since the beginning and nothing consulted it; every VM used the
+  global `scaling_thresholds`. Both the flat shape (`cpu_high`, `cpu_low`,
+  `ram_high`, `ram_low`) and the nested one (`cpu: { high, low }`) now work, and
+  any bound you omit keeps the global value.
+- **Billing generates reports.** `generate_period_report` existed but nothing
+  called it, so enabling billing produced a growing state file and no CSV, no
+  webhook and no report. The main loop now emits one per VM once a billing
+  period elapses; the period clock is persisted, so it survives restarts.
+- **Billing records VM start/stop.** `record_vm_state_change` was never called,
+  which is why every report showed 100% uptime. Transitions are now recorded —
+  transitions only, not one entry per poll.
+- **Downtime is no longer billed as uptime.** `_calculate_resource_cost`
+  accepted the uptime records and ignored them, so a VM powered off for a week
+  was billed for that week at its last known spec. Cost is now charged only for
+  the hours a VM was actually running.
+- **A VM that never changed spec is no longer billed zero.** Spec changes are
+  events, so a guest that held one size for the whole period had no records
+  inside it and cost nothing. The spec in effect at `period_start` is now
+  carried in, and so is the running state.
+- **`ssh_port` has a default again.** It was indexed directly rather than via
+  `.get()`, so omitting it raised `KeyError` and every VM on that host failed.
+  The shipped example omitted it on `host2`.
+
+### Security
+- **SSH host keys are verified.** The client set `AutoAddPolicy` without ever
+  loading or saving a known_hosts file, so every connection accepted whatever
+  key it was offered and remembered nothing — no protection at all for a
+  service holding root credentials. New `ssh_host_key_policy`, default
+  `accept-new`: a node's key is recorded on first contact and a later change is
+  refused. `strict` requires a pre-populated `ssh_known_hosts`; `auto`
+  reproduces the old behaviour and logs a warning. A mismatch is fatal and is
+  not retried.
+
+### Added
+- `tests/test_thresholds_hostkeys_billing.py`: 32 regression tests (170 total)
+  covering threshold resolution and precedence, all three host key policies and
+  the mismatch path, uptime-weighted cost, period carry-in, the persisted report
+  clock, and the autoscaler's own billing plumbing.
+
 ## [1.4.0] - 2026-09-05
 
 > **Upgrade note.** A VM whose usage cannot be read now **stops scaling**

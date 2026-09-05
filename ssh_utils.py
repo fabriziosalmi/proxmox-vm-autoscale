@@ -1,10 +1,30 @@
-import paramiko
 import logging
+import os
 import time
-from paramiko.ssh_exception import SSHException, AuthenticationException
+
+import paramiko
+from paramiko.ssh_exception import (
+    AuthenticationException,
+    BadHostKeyException,
+    SSHException,
+)
+
+DEFAULT_KNOWN_HOSTS = "/etc/vm_autoscale/known_hosts"
+
+#: Host key policies, loosest last.
+#:
+#: ``accept-new``  trust a host the first time it is seen, record its key, and
+#:                 refuse to connect if that key ever changes. This is what
+#:                 ``ssh -o StrictHostKeyChecking=accept-new`` does.
+#: ``strict``      only connect to hosts already present in known_hosts.
+#: ``auto``        accept any key, every time, and never record it. This was
+#:                 the previous behaviour and offers no protection at all.
+HOST_KEY_POLICIES = ("accept-new", "strict", "auto")
+
 
 class SSHClient:
-    def __init__(self, host, user, password=None, key_path=None, port=22):
+    def __init__(self, host, user, password=None, key_path=None, port=22,
+                 host_key_policy="accept-new", known_hosts=DEFAULT_KNOWN_HOSTS):
         """
         Initializes the SSH client with given credentials.
         :param host: Hostname or IP address of the server.
@@ -12,17 +32,72 @@ class SSHClient:
         :param password: Password for SSH (optional).
         :param key_path: Path to the private SSH key (optional).
         :param port: Port for SSH connection (default: 22).
+        :param host_key_policy: One of "accept-new", "strict" or "auto".
+        :param known_hosts: Path to the known_hosts file used for verification.
         """
         self.host = host
         self.user = user
         self.password = password
         self.key_path = key_path
         self.port = port
+        self.host_key_policy = (host_key_policy or "accept-new").lower()
+        self.known_hosts = known_hosts
         self.logger = logging.getLogger("ssh_utils")
         self.client = None
         # Added max retries and backoff factor for connection attempts
         self.max_retries = 5
         self.backoff_factor = 1
+
+        if self.host_key_policy not in HOST_KEY_POLICIES:
+            raise ValueError(
+                f"Unknown ssh_host_key_policy {host_key_policy!r}; "
+                f"expected one of {', '.join(HOST_KEY_POLICIES)}"
+            )
+
+    def _apply_host_key_policy(self, client):
+        """Configure host key verification on a fresh paramiko client.
+
+        The previous implementation set AutoAddPolicy without ever loading or
+        saving a known_hosts file, so every connection accepted whatever key it
+        was offered and nothing was remembered between connections - no
+        protection against an attacker sitting between the service and a node
+        holding root credentials.
+        """
+        if self.host_key_policy == "auto":
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.logger.warning(
+                f"Host key verification is disabled for {self.host} "
+                "(ssh_host_key_policy: auto). Any key will be accepted."
+            )
+            return
+
+        try:
+            client.load_system_host_keys()
+        except Exception as e:
+            self.logger.debug(f"Could not load system host keys: {e}")
+
+        if self.known_hosts:
+            directory = os.path.dirname(self.known_hosts)
+            try:
+                if directory:
+                    os.makedirs(directory, mode=0o700, exist_ok=True)
+                if not os.path.exists(self.known_hosts):
+                    # Create it so paramiko has somewhere to persist new keys.
+                    with open(self.known_hosts, "a"):
+                        pass
+                    os.chmod(self.known_hosts, 0o600)
+                client.load_host_keys(self.known_hosts)
+            except OSError as e:
+                self.logger.warning(
+                    f"Could not use known_hosts file {self.known_hosts}: {e}. "
+                    "Host keys learned during this run will not be remembered."
+                )
+
+        if self.host_key_policy == "strict":
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        else:
+            # accept-new: record an unknown key, reject a changed one.
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     def connect(self):
         """
@@ -36,7 +111,7 @@ class SSHClient:
         while attempt < self.max_retries:
             try:
                 self.client = paramiko.SSHClient()
-                self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self._apply_host_key_policy(self.client)
                 
                 # Connect using password or private key
                 if self.password:
@@ -62,6 +137,15 @@ class SSHClient:
                 self.logger.info(f"Successfully connected to {self.host} on port {self.port}")
                 break  # successful connection: exit loop
 
+            except BadHostKeyException as e:
+                self.logger.error(
+                    f"Host key mismatch for {self.host}: the server presented a key "
+                    f"that does not match the one recorded in {self.known_hosts}. "
+                    "Refusing to connect. If the host was legitimately rebuilt, "
+                    "remove its entry from that file; otherwise investigate before "
+                    "doing anything else."
+                )
+                raise
             except AuthenticationException:
                 self.logger.error(f"Authentication failed for {self.host}. Check credentials or key file.")
                 raise

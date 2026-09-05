@@ -7,8 +7,8 @@ description: How Proxmox VM Autoscale records spec changes for usage-based billi
 
 If you resell Proxmox capacity, autoscaling turns a fixed monthly spec into a variable one, and you probably want to bill for what a customer actually consumed. The `BillingTracker` module records every spec change with a timestamp and can turn a period into a costed CSV report.
 
-::: warning Read this before you invoice anyone
-Only part of this feature is wired into the running service. Enabling `billing` records data; it does **not** produce reports on its own, and the cost calculation currently ignores downtime. The [what is automatic](#what-is-automatic-and-what-is-not) section is precise about the boundary. Reconcile against your own records before billing a customer.
+::: warning Reconcile before you invoice anyone
+Reports are generated from what the service observed. If it was down, restarted, or could not reach a node, those gaps are not in the data. Check the figures against your own records before billing a customer.
 :::
 
 ## Configuration
@@ -34,18 +34,20 @@ billing:
 | `webhook_script` | `""` | Executable receiving the report as JSON on stdin |
 | `webhook_url` | `""` | Endpoint receiving the report as a JSON `POST` |
 
-## What is automatic, and what is not
+## What the service does on its own
 
 | Capability | Automatic? |
 |---|---|
 | Recording a spec change after each successful scaling action | **Yes** |
-| Persisting records to `billing_data.json` | **Yes** |
-| Recording VM start/stop events | **No** — nothing in the service calls it |
-| Generating a CSV report | **No** — nothing in the service calls it |
-| Firing `webhook_script` / `webhook_url` | **No** — only reachable via report generation |
-| Setting a human-readable VM name | **No** |
+| Recording VM start/stop transitions | **Yes** |
+| Persisting everything to `billing_data.json` | **Yes** |
+| Generating a CSV report once a billing period elapses | **Yes** |
+| Firing `webhook_script` / `webhook_url` with that report | **Yes** |
+| Setting a human-readable VM name | No — call `set_vm_name` yourself |
 
-So with `enabled: true` you get a growing `billing_data.json` full of spec changes, and nothing else, until you invoke the reporting yourself. `record_vm_state_change`, `generate_period_report`, `export_csv`, `run_webhook` and `set_vm_name` are all public API — they are simply not called by `autoscale.py`. See [known limitations](/reference/limitations#billing-reports-are-not-generated-automatically).
+The period clock starts the first time the service runs with billing enabled, and is persisted, so it survives restarts. The first period therefore ends `billing_period_days` after you switched billing on, not on a calendar boundary.
+
+State transitions are recorded, not sampled: one entry when a VM stops, one when it starts again. A VM that stays up for a month adds a single record.
 
 ## The data file
 
@@ -79,9 +81,9 @@ sudo systemctl start vm_autoscale.service
 Timestamps are naive local time (`datetime.now()`), with no timezone and no DST handling. Reports spanning a DST boundary will be off by an hour.
 :::
 
-## Generating a report
+## Generating a report out of band
 
-Run this on the machine hosting the service, as a user who can read `csv_output_dir`:
+The service emits one automatically at the end of each period. To produce one on demand — a mid-period check, or a re-run after fixing a rate — run this on the machine hosting the service, as a user who can read `csv_output_dir`:
 
 ```python
 #!/usr/bin/env python3
@@ -137,11 +139,12 @@ cost = Σ (cores × cost_per_cpu_core_per_hour × hours_at_that_spec)
 
 The first recorded spec is treated as being in effect from `period_start`, and the last one runs to `period_end`.
 
-::: danger Downtime is billed as uptime
-The cost calculation does not consult the uptime records — and since nothing records VM state changes in the first place, uptime is reported as 100% regardless. A VM powered off for a week is billed for that week at its last known spec. This is a real defect, not a pricing policy; see [known limitations](/reference/limitations#downtime-is-billed-as-uptime).
-:::
+Cost is charged **only for the hours the VM was up**. A guest powered off for half the period pays for half of it, at whatever spec it held while running.
 
-Also: a VM that never scaled during a period has no spec records for it, and is billed **zero** — not "the spec it sat at the whole time". Usage-based billing here means *change*-based recording, so a customer on a stable spec produces no data.
+A VM that did not change spec during the period is still billed correctly: the last spec recorded before the period starts is carried in as the opening value. Earlier versions filtered strictly to the period and billed such a VM zero, which is the opposite of what a stable customer should see.
+
+::: tip Where the numbers can still be wrong
+The service bills from what it observed. If it was stopped for two days, those two days have no state records and are treated as uptime at the last known spec. Long outages of the autoscaler itself are worth reconciling by hand.
 
 ## Webhooks
 

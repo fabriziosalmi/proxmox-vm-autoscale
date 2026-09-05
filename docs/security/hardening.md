@@ -73,20 +73,64 @@ from="10.0.0.5",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty 
 
 A forced command is tempting but impractical here, since the service issues several different commands with variable arguments. A wrapper script that whitelists `qm status|config|set` and `pvesh get` for specific VMIDs is possible if you want to invest in it.
 
-## Pin SSH host keys
+## Verify SSH host keys
 
-The client trusts any host key it is offered and does not pin. You cannot change that from configuration, so mitigate around it:
+The default is `accept-new`: the service records each node's host key the first
+time it connects and refuses to connect if that key later changes.
+
+```yaml
+ssh_host_key_policy: accept-new
+ssh_known_hosts: /etc/vm_autoscale/known_hosts
+```
+
+That leaves one window open — the first connection is trust-on-first-use. To
+close it, pin the keys yourself and switch to `strict`:
+
+```bash
+sudo install -d -m 700 /etc/vm_autoscale
+for h in 10.0.0.11 10.0.0.12; do
+    ssh-keyscan -H "$h" | sudo tee -a /etc/vm_autoscale/known_hosts
+done
+sudo chmod 600 /etc/vm_autoscale/known_hosts
+```
+
+::: warning Verify the fingerprints out of band
+`ssh-keyscan` trusts whatever answers. Compare what it collected against the
+fingerprints printed on each node's console:
+
+```bash
+# On the Proxmox node
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+:::
+
+```yaml
+ssh_host_key_policy: strict
+```
+
+Under `strict` a node missing from `ssh_known_hosts` is refused, so remember to
+add new nodes before adding them to `proxmox_hosts`.
+
+A mismatch is fatal and is not retried:
+
+```
+[ERROR] Host key mismatch for 10.0.0.11: the server presented a key that does
+        not match the one recorded in /etc/vm_autoscale/known_hosts.
+```
+
+If a node was legitimately rebuilt, remove its line from the file. Otherwise
+investigate before doing anything else — that message is what an interception
+attempt looks like.
+
+Still worth doing alongside:
 
 - **Segment the network.** Put management SSH on a dedicated VLAN reachable only from the autoscaler.
 - **Use addresses, not names.** `host: 10.0.0.11` removes DNS from the attack path.
-- **Pre-populate `known_hosts`** so at least an interactive `ssh` from that box fails loudly if a key changes:
 
-  ```bash
-  ssh-keyscan -H 10.0.0.11 | sudo tee -a /root/.ssh/known_hosts
-  ```
-
-  The service will not consult it, but it gives you a tripwire.
-- **Alert on host key changes** with a periodic `ssh-keyscan` diff.
+::: danger `ssh_host_key_policy: auto` disables all of this
+It reproduces the old behaviour — accept any key, every time, remember nothing.
+It exists as an escape hatch and logs a warning on every connection.
+:::
 
 ## Confine the systemd unit
 
@@ -236,6 +280,7 @@ Rotate immediately if `config.yaml` was ever readable by a non-root user, if the
 - [ ] `config.yaml` is `600`, root-owned
 - [ ] `/etc/vm_autoscale` is `700`, backup inside is `600`
 - [ ] Key authentication, dedicated key, `ssh_password` removed
+- [ ] `ssh_host_key_policy: strict` with a verified `ssh_known_hosts`
 - [ ] `from=` restriction on the key in `authorized_keys`
 - [ ] Management SSH on a segmented network
 - [ ] systemd hardening drop-in applied and verified

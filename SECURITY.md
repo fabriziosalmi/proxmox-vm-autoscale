@@ -63,7 +63,7 @@ These are documented, not hidden. Please check them before reporting.
 
 | Weakness | Status |
 |---|---|
-| SSH host keys are auto-accepted, with no pinning | Design-level; mitigate by network segmentation |
+| Host key trust is first-use by default | `accept-new` records and pins after the first contact; use `strict` with a pre-populated `ssh_known_hosts` to close the first-use window |
 | Credentials stored in plain text in `config.yaml` | No secrets backend; mitigate with mode `600` and disk encryption |
 | The service requires and runs as `root` | Every action is a `qm` command; no least-privilege mode exists |
 | `install.sh` is fetched over HTTPS and run unverified | Read it first, or install manually |
