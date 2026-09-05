@@ -125,7 +125,7 @@ Python 3.9 was dropped once `requests` stopped supporting it: 3.9 reached end of
 
 ### Which version should I run?
 
-The latest release, `v1.5.0`, or `main`. Note that older tags are not in chronological order: `v1.2.0` was published before `v0.1.1`. Numbering is monotonic from `v1.3.0` onwards.
+The latest release, `v1.6.0`, or `main`. Note that older tags are not in chronological order: `v1.2.0` was published before `v0.1.1`. Numbering is monotonic from `v1.3.0` onwards.
 
 ### How do I report a bug or a vulnerability?
 

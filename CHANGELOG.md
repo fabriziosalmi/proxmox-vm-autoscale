@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-05
+
+> **Upgrade note.** A scaling action that fails now **raises** instead of being
+> logged as done. If something in your fleet has been silently failing to
+> scale, `CommandFailed` will start appearing in the log. That is the fix
+> working, not new breakage — but it will look like new breakage.
+>
+> Start with `dry_run: true` if you want to see what the service intends
+> before letting it act.
+
 ### Added
 - **Dry-run mode** (`dry_run: true`). Everything is evaluated and nothing is
   changed: no command that touches a VM is issued, hotplug auto-configuration
@@ -304,7 +314,8 @@ Recorded here because the original release notes overstate what shipped:
 - Host resource safety checks
 - Scaling cooldown periods
 
-[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v0.1.1...v1.3.0
