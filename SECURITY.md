@@ -68,7 +68,6 @@ These are documented, not hidden. Please check them before reporting.
 | The service requires and runs as `root` | Every action is a `qm` command; no least-privilege mode exists |
 | `install.sh` is fetched over HTTPS and run unverified | Read it first, or install manually |
 | VMIDs are interpolated into shell command strings | Config is administrator-controlled, so not remotely exploitable |
-| Only RSA SSH keys load | Ed25519 and ECDSA keys fail to load |
 
 Full analysis, including attacker positions and what is *not* a risk:
 **[Threat model](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/)**.

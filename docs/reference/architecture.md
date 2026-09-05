@@ -156,7 +156,7 @@ Realistic places to add behaviour without restructuring:
 
 ## Tests
 
-`tests/` holds 118 unit tests across six files, run with `pytest`. They use mocked SSH clients throughout — there is no integration test against a real Proxmox node, so anything depending on actual `pvesh` output format is unverified by CI.
+`tests/` holds 138 unit tests across seven files, run with `pytest`. SSH is mocked throughout, so there is no integration test against a real Proxmox node — but metrics now come from `pvesh --output-format json`, and the tests exercise that parsing against realistic payloads rather than a scraped table.
 
 ```bash
 python3 -m pytest tests/ -q

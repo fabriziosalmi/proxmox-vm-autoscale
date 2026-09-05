@@ -89,15 +89,16 @@ Nothing rotates `/var/log/vm_autoscale.log`. At `DEBUG`, with a large fleet, it 
 | `Host CPU Usage: 12.40%, Host RAM Usage: 61.20%` | Gate 2 passed for this node |
 | `Host pve1 resources maxed out. Skipping scaling.` | Gate 2 blocked; no VM on this node scales this cycle |
 | `VM 101 is not running. Skipping scaling.` | Gate 1 blocked |
-| `VM 101 current usage - CPU: 3.2%, RAM: 41.5%` | The sample the decision is based on |
+| `VM 101 current usage - CPU: 3.20%, RAM: 41.50%` | The sample the decision is based on |
 | `No CPU scaling required.` | Threshold crossed but a limit was already reached |
 | `Scaled up vCPUs to 3 ... (hotplug applied)` | Live change |
 | `... (requires reboot for full effect)` | Config changed; guest unaffected until reboot |
-| `CPU usage not found in output.` | Metric parse failure — usage falls back to `0.0` |
+| `CPU: unavailable` | That metric could not be read; scaling is skipped, not guessed |
+| `VM 101: no usage metrics available this cycle.` | Neither metric could be read |
 | `Error processing VM 101 on host pve1: ...` | Per-VM failure; loop continues |
 
-::: warning `CPU usage not found in output` deserves attention
-It means usage was recorded as `0.0`, which is below every sane `low` threshold, so the next decision is a scale **down**. Left unnoticed, a parsing failure walks every VM down to its minimum. See [troubleshooting](/guide/troubleshooting#usage-always-reads-0).
+::: warning `unavailable` is safe, but it means nothing is scaling
+No action is taken on a metric that could not be read — the earlier behaviour of substituting `0.0`, which scaled VMs down, is gone. But a VM whose metrics never resolve is a VM that never scales. Alert on it. See [troubleshooting](/guide/troubleshooting#usage-reads-as-unavailable).
 :::
 
 ## Changing configuration

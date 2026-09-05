@@ -13,30 +13,6 @@ Items are grouped by whether they can bite you silently.
 
 These produce wrong behaviour without an obvious error.
 
-### Metric parsing is format-sensitive
-
-Guest usage comes from scraping a human-readable table:
-
-```bash
-pvesh get /cluster/resources | grep 'qemu/<vmid>' | awk -F '│' '{print $6, $15, $16}'
-```
-
-This depends on the box-drawing separator, on those exact column indices, and on `grep` matching only the intended row. Any of them can change between Proxmox versions.
-
-**Impact:** when parsing fails, usage falls back to `0.0`. Zero is below every reasonable `low` threshold, so **a parse failure is indistinguishable from an idle guest** and walks every affected VM down to its minimum, one step per cycle.
-
-**Detection:** `CPU usage not found in output.` / `RAM memory values not found in output.` in the log.
-
-**Workaround:** verify the command by hand on your Proxmox version before deploying, and alert on those warnings. A `--output-format json` implementation would remove the whole class of problem.
-
-### `grep 'qemu/101'` also matches VMID 1010
-
-The VMID filter is a substring match, so a four-digit VMID beginning with your three-digit one matches too, and `awk` reads whichever row came first.
-
-**Impact:** decisions made from another VM's usage.
-
-**Workaround:** avoid VMID prefixes of each other among managed VMs.
-
 ### A `proxmox_host` typo skips the VM without a word
 
 VMs are matched to hosts by exact string equality on `name`. A mismatch means the VM entry is never reached — no warning, no error, it simply never appears in the log.
@@ -127,11 +103,11 @@ When both are present the password is used. The shipped example fills in both wi
 
 Covered in full in the [threat model](/security/); summarised here.
 
-### Only RSA SSH keys are supported
+### Encrypted SSH keys are not supported
 
-The key file is loaded specifically as an RSA key, so Ed25519 and ECDSA keys fail to load — despite `SECURITY.md` recommending Ed25519.
+Ed25519, ECDSA, RSA and DSS key types all load, but there is no passphrase option, so the key file must be unencrypted.
 
-**Workaround:** `ssh-keygen -t rsa -b 4096`, or use password authentication.
+**Workaround:** protect the key with file permissions and a `from=` restriction in `authorized_keys` instead.
 
 ### SSH host keys are accepted automatically
 

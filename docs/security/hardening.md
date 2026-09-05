@@ -35,13 +35,13 @@ The installer's recursive `chmod 755` left the config world-readable, meaning ev
 Do not reuse an existing admin key.
 
 ```bash
-sudo ssh-keygen -t rsa -b 4096 -f /root/.ssh/vm_autoscale_rsa -N "" \
+sudo ssh-keygen -t ed25519 -f /root/.ssh/vm_autoscale_ed25519 -N "" \
   -C "vm-autoscale@$(hostname -f)"
-sudo chmod 600 /root/.ssh/vm_autoscale_rsa
+sudo chmod 600 /root/.ssh/vm_autoscale_ed25519
 ```
 
 ```bash
-sudo ssh-copy-id -i /root/.ssh/vm_autoscale_rsa.pub root@10.0.0.11
+sudo ssh-copy-id -i /root/.ssh/vm_autoscale_ed25519.pub root@10.0.0.11
 ```
 
 ```yaml
@@ -49,13 +49,13 @@ proxmox_hosts:
   - name: pve1
     host: 10.0.0.11
     ssh_user: root
-    ssh_key: /root/.ssh/vm_autoscale_rsa
+    ssh_key: /root/.ssh/vm_autoscale_ed25519
     ssh_port: 22
     # ssh_password intentionally absent — it would override the key
 ```
 
-::: warning RSA specifically
-The key is loaded as an RSA key. Ed25519 and ECDSA keys will not load, regardless of how much better a choice they would otherwise be. Use `-t rsa -b 4096` until that changes.
+::: warning The key must be unencrypted
+Ed25519, ECDSA, RSA and DSS key types all load. There is no passphrase option, though, so an encrypted key cannot be used — protect it with file permissions instead.
 :::
 
 Remove `ssh_password` entirely — leaving it set means the key is ignored.
@@ -223,8 +223,8 @@ Nothing rotates automatically. On a schedule that suits you:
 
 ```bash
 # New key
-sudo ssh-keygen -t rsa -b 4096 -f /root/.ssh/vm_autoscale_rsa.new -N ""
-sudo ssh-copy-id -i /root/.ssh/vm_autoscale_rsa.new.pub root@10.0.0.11
+sudo ssh-keygen -t ed25519 -f /root/.ssh/vm_autoscale_ed25519.new -N ""
+sudo ssh-copy-id -i /root/.ssh/vm_autoscale_ed25519.new.pub root@10.0.0.11
 # Update config.yaml, restart, verify a full cycle, then remove the old key
 # from authorized_keys on every node
 ```
@@ -235,7 +235,7 @@ Rotate immediately if `config.yaml` was ever readable by a non-root user, if the
 
 - [ ] `config.yaml` is `600`, root-owned
 - [ ] `/etc/vm_autoscale` is `700`, backup inside is `600`
-- [ ] Key authentication, dedicated RSA key, `ssh_password` removed
+- [ ] Key authentication, dedicated key, `ssh_password` removed
 - [ ] `from=` restriction on the key in `authorized_keys`
 - [ ] Management SSH on a segmented network
 - [ ] systemd hardening drop-in applied and verified

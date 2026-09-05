@@ -11,6 +11,7 @@ These tests verify:
 - _record_billing_spec integration
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -338,6 +339,46 @@ def make_vm_manager(responses=None, config=None):
     return VMResourceManager(ssh, "101", cfg)
 
 
+GIB = 1024 ** 3
+
+
+def cluster_entry(vmid, cpu=0.0317, mem=3.82 * GIB, maxmem=5 * GIB, **extra):
+    """One `pvesh get /cluster/resources --output-format json` row."""
+    entry = {
+        "id": f"qemu/{vmid}",
+        "type": "qemu",
+        "vmid": int(vmid),
+        "node": "pve1",
+        "status": "running",
+        "cpu": cpu,
+        "maxcpu": 4,
+        "mem": mem,
+        "maxmem": maxmem,
+    }
+    entry.update(extra)
+    return entry
+
+
+def mgr_with_resources(payload, running=True, vm_id="101"):
+    """Manager whose SSH double answers qm status and the cluster query."""
+    status = ("status: running" if running else "status: stopped", "", 0)
+    body = payload if isinstance(payload, str) else json.dumps(payload)
+    ssh = MagicMock()
+
+    def side(cmd, *args, **kwargs):
+        if "qm status" in cmd:
+            return status
+        if "cluster/resources" in cmd:
+            return (body, "", 0)
+        return ("", "", 0)
+
+    ssh.execute_command.side_effect = side
+    return VMResourceManager(ssh, vm_id, {
+        "auto_configure_hotplug": False, "scale_cooldown": 0,
+        "min_cores": 1, "max_cores": 8, "min_ram": 512, "max_ram": 16384,
+    })
+
+
 class TestGetResourceUsage(unittest.TestCase):
 
     def test_returns_zero_when_vm_not_running(self):
@@ -346,68 +387,179 @@ class TestGetResourceUsage(unittest.TestCase):
         self.assertEqual(cpu, 0.0)
         self.assertEqual(ram, 0.0)
 
-    def test_parses_cpu_and_ram_from_output(self):
-        running = ("status: running", "", 0)
-        usage_line = ("  3.17%     5.00 GiB     3.82 GiB ", "", 0)
-        ssh = MagicMock()
-
-        def side(cmd):
-            if "qm status" in cmd:
-                return running
-            return usage_line
-
-        ssh.execute_command.side_effect = side
-        mgr = VMResourceManager(ssh, "101", {
-            "auto_configure_hotplug": False, "scale_cooldown": 0,
-            "min_cores": 1, "max_cores": 8, "min_ram": 512, "max_ram": 16384,
-        })
+    def test_reads_cpu_and_ram_from_json(self):
+        mgr = mgr_with_resources([cluster_entry(101)])
         cpu, ram = mgr.get_resource_usage()
         self.assertAlmostEqual(cpu, 3.17)
-        self.assertGreater(ram, 0)
+        self.assertAlmostEqual(ram, 3.82 / 5 * 100)
+
+    def test_queries_pvesh_with_json_output(self):
+        mgr = mgr_with_resources([cluster_entry(101)])
+        mgr.get_resource_usage()
+        issued = [c.args[0] for c in mgr.ssh_client.execute_command.call_args_list]
+        query = next(c for c in issued if "cluster/resources" in c)
+        self.assertIn("--output-format json", query)
+        # The old pipeline scraped a box-drawing table; nothing should shell out.
+        self.assertNotIn("awk", query)
+        self.assertNotIn("grep", query)
+
+    def test_picks_the_exact_vmid_not_a_prefix_match(self):
+        """`grep 'qemu/101'` used to match VMID 1010 and read the wrong row."""
+        mgr = mgr_with_resources([
+            cluster_entry(1010, cpu=0.90, mem=1 * GIB, maxmem=2 * GIB),
+            cluster_entry(101, cpu=0.05, mem=1 * GIB, maxmem=4 * GIB),
+        ])
+        cpu, ram = mgr.get_resource_usage()
+        self.assertAlmostEqual(cpu, 5.0)
+        self.assertAlmostEqual(ram, 25.0)
+
+    def test_ignores_lxc_containers_with_the_same_vmid(self):
+        mgr = mgr_with_resources([
+            dict(cluster_entry(101, cpu=0.90), type="lxc", id="lxc/101"),
+            cluster_entry(101, cpu=0.05, mem=1 * GIB, maxmem=4 * GIB),
+        ])
+        cpu, _ = mgr.get_resource_usage()
+        self.assertAlmostEqual(cpu, 5.0)
 
 
-class TestParseCPUUsage(unittest.TestCase):
+class TestUnreadableMetricsAreNotZero(unittest.TestCase):
+    """A metric that cannot be read must never look like an idle guest.
 
-    def _mgr(self):
-        return make_vm_manager()
+    Returning 0.0 put the VM below every sensible `low` threshold, so a parse
+    failure scaled it down one step per cycle until it hit its minimum.
+    """
 
-    def test_parses_percentage(self):
-        mgr = self._mgr()
-        self.assertAlmostEqual(mgr._parse_cpu_usage("  5.25%  2.00 GiB  1.00 GiB"), 5.25)
+    def test_malformed_json_returns_none(self):
+        mgr = mgr_with_resources("not json at all")
+        self.assertEqual(mgr.get_resource_usage(), (None, None))
 
-    def test_returns_zero_for_no_match(self):
-        mgr = self._mgr()
-        self.assertEqual(mgr._parse_cpu_usage("no numbers here"), 0.0)
+    def test_empty_response_returns_none(self):
+        mgr = mgr_with_resources("")
+        self.assertEqual(mgr.get_resource_usage(), (None, None))
 
-    def test_returns_zero_for_empty_string(self):
-        mgr = self._mgr()
-        self.assertEqual(mgr._parse_cpu_usage(""), 0.0)
+    def test_payload_that_is_not_a_list_returns_none(self):
+        mgr = mgr_with_resources({"error": "permission denied"})
+        self.assertEqual(mgr.get_resource_usage(), (None, None))
+
+    def test_vm_absent_from_cluster_resources_returns_none(self):
+        mgr = mgr_with_resources([cluster_entry(999)])
+        self.assertEqual(mgr.get_resource_usage(), (None, None))
+
+    def test_ssh_failure_on_the_metrics_query_returns_none(self):
+        """The status check succeeds, the cluster query does not."""
+        mgr = mgr_with_resources([cluster_entry(101)])
+
+        def side(cmd, *args, **kwargs):
+            if "qm status" in cmd:
+                return ("status: running", "", 0)
+            raise OSError("connection reset by peer")
+
+        mgr.ssh_client.execute_command.side_effect = side
+        self.assertEqual(mgr.get_resource_usage(), (None, None))
+
+    def test_missing_cpu_field_returns_none_for_cpu_only(self):
+        entry = cluster_entry(101)
+        del entry["cpu"]
+        mgr = mgr_with_resources([entry])
+        cpu, ram = mgr.get_resource_usage()
+        self.assertIsNone(cpu)
+        self.assertIsNotNone(ram)
+
+    def test_missing_memory_fields_return_none_for_ram_only(self):
+        entry = cluster_entry(101)
+        del entry["maxmem"]
+        mgr = mgr_with_resources([entry])
+        cpu, ram = mgr.get_resource_usage()
+        self.assertIsNotNone(cpu)
+        self.assertIsNone(ram)
+
+    def test_zero_maxmem_returns_none_rather_than_zero(self):
+        mgr = mgr_with_resources([cluster_entry(101, mem=0, maxmem=0)])
+        _, ram = mgr.get_resource_usage()
+        self.assertIsNone(ram)
+
+    def test_non_numeric_values_return_none(self):
+        mgr = mgr_with_resources([cluster_entry(101, cpu="n/a", mem="?", maxmem="?")])
+        self.assertEqual(mgr.get_resource_usage(), (None, None))
+
+    def test_a_genuinely_idle_vm_still_reports_zero(self):
+        """Zero must remain reachable, or scale-down would never trigger."""
+        mgr = mgr_with_resources([cluster_entry(101, cpu=0.0, mem=0, maxmem=4 * GIB)])
+        cpu, ram = mgr.get_resource_usage()
+        self.assertEqual(cpu, 0.0)
+        self.assertEqual(ram, 0.0)
 
 
-class TestParseRAMUsage(unittest.TestCase):
+class TestUnreadableMetricsNeverScale(unittest.TestCase):
+    """The autoscaler side of the same guarantee: None is never acted on."""
 
-    def _mgr(self):
-        return make_vm_manager()
+    def _autoscaler(self):
+        with patch.object(VMAutoscaler, "__init__", lambda s, *a, **kw: None):
+            a = VMAutoscaler.__new__(VMAutoscaler)
+        a.config = {
+            "scaling_thresholds": {"cpu": {"high": 80, "low": 20},
+                                   "ram": {"high": 85, "low": 25}},
+            "host_limits": {"max_host_cpu_percent": 90, "max_host_ram_percent": 90},
+        }
+        a.logger = make_logger()
+        a.notification_manager = MagicMock()
+        a.billing_tracker = None
+        a._vm_managers = {}
+        return a
 
-    def test_parses_gib_values(self):
-        mgr = self._mgr()
-        # 2 GiB used out of 4 GiB → 50%
-        pct = mgr._parse_ram_usage("  10%   4.00 GiB   2.00 GiB ")
-        self.assertAlmostEqual(pct, 50.0)
+    def test_format_usage_distinguishes_unknown_from_zero(self):
+        a = self._autoscaler()
+        self.assertEqual(a._format_usage(None), "unavailable")
+        self.assertEqual(a._format_usage(0.0), "0.00%")
+        self.assertEqual(a._format_usage(3.17), "3.17%")
 
-    def test_parses_mib_values(self):
-        mgr = self._mgr()
-        # 512 MiB = 0.5 GiB used, 1024 MiB = 1 GiB total → 50%
-        pct = mgr._parse_ram_usage("  5%   1024.00 MiB   512.00 MiB ")
-        self.assertAlmostEqual(pct, 50.0)
+    def test_cpu_handler_ignores_none(self):
+        a = self._autoscaler()
+        vm_manager = MagicMock()
+        a._handle_cpu_scaling(vm_manager, vm_id=101, cpu_usage=None)
+        vm_manager.scale_cpu.assert_not_called()
+        a.notification_manager.send_notification.assert_not_called()
 
-    def test_returns_zero_for_no_match(self):
-        mgr = self._mgr()
-        self.assertEqual(mgr._parse_ram_usage("no memory info"), 0.0)
+    def test_ram_handler_ignores_none(self):
+        a = self._autoscaler()
+        vm_manager = MagicMock()
+        a._handle_ram_scaling(vm_manager, vm_id=101, ram_usage=None)
+        vm_manager.scale_ram.assert_not_called()
+        a.notification_manager.send_notification.assert_not_called()
 
-    def test_returns_zero_for_zero_max_mem(self):
-        mgr = self._mgr()
-        self.assertEqual(mgr._parse_ram_usage("  5%   0.00 GiB   0.00 GiB "), 0.0)
+    def _run_process_vm(self, usage):
+        a = self._autoscaler()
+        vm_manager = MagicMock()
+        vm_manager.is_vm_running.return_value = True
+        vm_manager.get_resource_usage.return_value = usage
+        a._vm_managers["101"] = vm_manager
+
+        host = {"name": "pve1", "host": "10.0.0.11", "ssh_user": "root",
+                "ssh_port": 22, "ssh_password": "x"}
+        vm = {"vm_id": "101", "proxmox_host": "pve1", "scaling_enabled": True,
+              "cpu_scaling": True, "ram_scaling": True}
+
+        with patch("autoscale.SSHClient"), patch("autoscale.HostResourceChecker") as hrc:
+            hrc.return_value.check_host_resources.return_value = True
+            a.process_vm(host, vm)
+        return vm_manager
+
+    def test_process_vm_skips_scaling_when_both_metrics_are_unavailable(self):
+        """A failed read used to read as 0% and scale the VM down."""
+        vm_manager = self._run_process_vm((None, None))
+        vm_manager.scale_cpu.assert_not_called()
+        vm_manager.scale_ram.assert_not_called()
+
+    def test_process_vm_still_scales_the_metric_it_could_read(self):
+        vm_manager = self._run_process_vm((95.0, None))
+        vm_manager.scale_cpu.assert_called_once_with("up")
+        vm_manager.scale_ram.assert_not_called()
+
+    def test_process_vm_acts_on_a_genuine_zero(self):
+        """Zero still means idle and must still scale down."""
+        vm_manager = self._run_process_vm((0.0, 0.0))
+        vm_manager.scale_cpu.assert_called_once_with("down")
+        vm_manager.scale_ram.assert_called_once_with("down")
 
 
 class TestCanScale(unittest.TestCase):

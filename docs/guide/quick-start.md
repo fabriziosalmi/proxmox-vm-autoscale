@@ -56,7 +56,7 @@ proxmox_hosts:
   - name: pve1
     host: 192.168.1.10
     ssh_user: root
-    ssh_key: /root/.ssh/id_rsa
+    ssh_key: /root/.ssh/id_ed25519
     ssh_port: 22
 
 virtual_machines:
@@ -77,8 +77,8 @@ logging:
   log_file: /var/log/vm_autoscale.log
 ```
 
-::: warning `ssh_key` must be an RSA key
-Key authentication currently loads the file as an RSA key specifically. An Ed25519 or ECDSA key will fail to load and the connection will fall back to failing. See [known limitations](/reference/limitations#only-rsa-ssh-keys-are-supported). Use a password, or generate an RSA key, until that is fixed.
+::: tip Any key type works, but it must be unencrypted
+Ed25519, ECDSA, RSA and DSS keys all load. There is no passphrase option, so the key file must not be encrypted.
 :::
 
 `proxmox_host` in each VM entry must match a `name` in `proxmox_hosts` exactly — a mismatch means the VM is silently never processed.

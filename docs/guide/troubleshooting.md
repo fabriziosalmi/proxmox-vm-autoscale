@@ -59,15 +59,24 @@ ssh -p 22 -i /root/.ssh/id_rsa root@192.168.1.10 'qm list'
 
 ### Key authentication fails but the key is fine
 
-**Only RSA keys are supported.** The key file is loaded specifically as an RSA key, so an Ed25519 or ECDSA key fails to load however valid it is. This is the single most common cause of "my key works from the shell but not from the service".
+Ed25519, ECDSA, RSA and DSS keys all load. The usual remaining cause is an **encrypted** key: there is no passphrase option, so the file must be unencrypted.
 
 ```bash
-head -1 /root/.ssh/id_ed25519    # OPENSSH PRIVATE KEY → will not work
-ssh-keygen -t rsa -b 4096 -f /root/.ssh/vm_autoscale_rsa -N ""
-ssh-copy-id -i /root/.ssh/vm_autoscale_rsa.pub root@192.168.1.10
+grep -q ENCRYPTED /root/.ssh/id_ed25519 && echo "encrypted — will not load"
 ```
 
-Then point `ssh_key` at the new private key. See [known limitations](/reference/limitations#only-rsa-ssh-keys-are-supported).
+The error names the file and the reason:
+
+```
+Could not load private key /root/.ssh/id_ed25519: ...
+```
+
+Generate an unencrypted key for the service and protect it with file permissions instead:
+
+```bash
+ssh-keygen -t ed25519 -f /root/.ssh/vm_autoscale_ed25519 -N ""
+ssh-copy-id -i /root/.ssh/vm_autoscale_ed25519.pub root@192.168.1.10
+```
 
 ### `Failed to connect to 192.168.1.10 after 5 attempts`
 
@@ -131,26 +140,32 @@ Check `qm config 101` against your `scaling_limits`.
 
 **7. Is it in cooldown?** No log line is emitted for this. Look at the timestamp of the last `Scaled ...` line for that VM and compare against `scale_cooldown`.
 
-## Usage always reads 0%
+## Usage reads as "unavailable"
 
 ```
-[WARNING] CPU usage not found in output.
-[WARNING] RAM memory values not found in output.
+[INFO]    VM 101 current usage - CPU: unavailable, RAM: unavailable
+[WARNING] VM 101: no usage metrics available this cycle. Skipping scaling
+          rather than treating the VM as idle.
 ```
 
-Usage is scraped from `pvesh`'s human-readable table, and the format is version-sensitive. Run the exact command on the node:
+Scaling is skipped for that cycle, so nothing bad happens — but nothing scales either. Run the query by hand on the node:
 
 ```bash
-pvesh get /cluster/resources | grep 'qemu/101' | awk -F '│' '{print $6, $15, $16}'
+pvesh get /cluster/resources --output-format json | jq '.[] | select(.vmid == 101)'
 ```
 
-You want something like `3.17% 5.00 GiB 3.82 GiB`. Empty output or wrong columns means the format on your Proxmox version does not match what the parser expects.
+You want a `qemu` row with `cpu`, `mem` and `maxmem`. The log says which part failed:
 
-::: danger This failure mode scales VMs down
-`0.0` is below every reasonable `low` threshold, so a parse failure reads as "completely idle" and every affected VM walks down to its minimum, one step per cycle. If you see these warnings, stop the service before it finishes.
+| Log line | Cause |
+|---|---|
+| `could not parse cluster resources as JSON` | `pvesh` returned something else — check the command runs as your `ssh_user` |
+| `not present in cluster resources` | Wrong VMID, or the guest lives in another cluster |
+| `no 'cpu' field in cluster resources` | Unexpected payload shape for your Proxmox version |
+| `maxmem is 0` | The guest reports no memory ceiling |
+
+::: info This used to be dangerous
+Before the switch to JSON, an unreadable metric was reported as `0.0`, which reads as "completely idle" and scaled the VM down one step per cycle until it hit its minimum. It is now reported as unavailable and skipped.
 :::
-
-Also check the `grep` is not matching the wrong guest — `grep 'qemu/101'` matches `qemu/1010` too. If you have both, the parse silently reads the wrong row.
 
 ## The change does not reach the guest
 

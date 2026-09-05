@@ -78,7 +78,7 @@ proxmox_hosts:
   - name: pve1
     host: 10.0.0.11
     ssh_user: root
-    ssh_key: /root/.ssh/vm_autoscale_rsa   # RSA keys only
+    ssh_key: /root/.ssh/vm_autoscale_ed25519
     ssh_port: 22                           # required, no default
 
 virtual_machines:

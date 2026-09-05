@@ -43,7 +43,7 @@ It works on the nodes of a cluster, treating each as an independent host. It has
 
 ### Can I use an Ed25519 SSH key?
 
-Not currently. The key file is loaded specifically as an RSA key. Use an RSA key or password authentication — see [known limitations](/reference/limitations#only-rsa-ssh-keys-are-supported).
+Yes. Ed25519, ECDSA, RSA and DSS keys all load. The key must be **unencrypted** — there is no passphrase option.
 
 ### Does it need root on the Proxmox host?
 
@@ -73,7 +73,7 @@ No — a stopped guest is skipped before anything else happens.
 
 ### What if a VM's usage cannot be read?
 
-It is treated as `0.0%`, which is below any sane `low` threshold, so the VM is scaled **down**. This is a genuine hazard, not a design choice — watch for `CPU usage not found in output` in the log.
+That resource is reported as `unavailable` and scaling is skipped for the cycle. It is deliberately **not** treated as zero: earlier versions did that, and since zero is below any sane `low` threshold it walked the VM down to its minimum.
 
 ### Does it undo its changes when stopped?
 
@@ -113,7 +113,7 @@ No. If the service is running and a threshold is crossed, the command is execute
 
 ### Is it safe for production?
 
-It is a small single-process service with 118 unit tests, run by its author and by others across 302 stars and 23 forks. It is also alpha-versioned software that holds root credentials, has no dry-run, and has known defects documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
+It is a small single-process service with 138 unit tests, run by its author and by others across 302 stars and 23 forks. It is also alpha-versioned software that holds root credentials, has no dry-run, and has known defects documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
 
 ## Project
 

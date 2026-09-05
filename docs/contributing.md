@@ -34,7 +34,7 @@ pytest tests/test_vm_hotplug.py -v           # one file
 pytest -k cooldown -v                        # by name
 ```
 
-118 tests, under a second. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
+138 tests, under a second. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
 
 ## What a good change looks like
 
