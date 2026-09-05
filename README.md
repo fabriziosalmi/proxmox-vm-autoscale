@@ -25,7 +25,6 @@ With hotplug and NUMA enabled on a guest, vCPU and balloon memory changes apply 
 - **No LXC containers** — see [proxmox-lxc-autoscale](https://github.com/fabriziosalmi/proxmox-lxc-autoscale)
 - **No disk, network or GPU scaling** — CPU cores, vCPUs and memory only
 - **No prediction** — one instantaneous sample per cycle, no smoothing or trend analysis
-- **No dry-run mode** — if a threshold is crossed, `qm set` runs
 
 ## Requirements
 
@@ -93,6 +92,31 @@ Gotify and SMTP notifications, billing tracking and hotplug auto-configuration a
 
 > [!WARNING]
 > `config.yaml` holds your Proxmox SSH credentials in plain text. It must be root-owned and mode `600` — the installer does this. See the [hardening guide](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/hardening.html).
+
+## Try it without letting it act
+
+```yaml
+dry_run: true
+```
+
+Everything is evaluated and nothing is changed: no `qm set` is issued, the log records what would have happened, and notifications carry a `[DRY RUN]` prefix.
+
+```
+[dry-run] VM 101: would run `qm set 101 -vcpus 3`
+```
+
+## Monitoring
+
+An optional Prometheus endpoint, off by default and bound to localhost when on:
+
+```yaml
+metrics:
+  enabled: true
+  bind: 127.0.0.1
+  port: 9808
+```
+
+Exports cycle count and duration, per-VM CPU/RAM and running state, scaling actions by resource and direction, failures, and per-node utilisation. A metric that could not be read is **absent** rather than zero.
 
 ## Documentation
 

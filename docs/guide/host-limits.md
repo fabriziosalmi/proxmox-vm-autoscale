@@ -58,7 +58,9 @@ Both are required keys — there is no default. A missing `host_limits` section 
 
 ## Multi-node behaviour
 
-Limits are global, not per host: the same two numbers apply to every node in `proxmox_hosts`. If one node is much smaller or much busier than the rest, you cannot express that today. The workaround is to run a second instance of the service with its own config file and its own systemd unit.
+`host_limits` is global, not per host: the same two numbers apply to every node in `proxmox_hosts`. If one node is much smaller or much busier than the rest, you cannot express that today — run a second instance with its own config and unit.
+
+(Per-VM *scaling* limits are supported; it is the per-node ceilings that are still global. See [configuration](/reference/configuration#virtual-machines).)
 
 ## What is not checked
 

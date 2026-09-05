@@ -5,11 +5,18 @@ import time
 import threading
 
 
+class CommandFailed(RuntimeError):
+    """A command returned a non-zero exit status on the Proxmox node."""
+
+
 class VMResourceManager:
-    def __init__(self, ssh_client, vm_id, config):
+    def __init__(self, ssh_client, vm_id, config, vm_config=None):
         self.ssh_client = ssh_client
         self.vm_id = vm_id
         self.config = config
+        # The VM's own entry from `virtual_machines`, when the caller has it.
+        # Used for per-VM `scaling_limits` overrides.
+        self.vm_config = vm_config or {}
         self.logger = logging.getLogger("vm_resource_manager")
         # CPU and RAM are rate-limited independently: a CPU change must not
         # swallow the RAM cooldown (and vice versa) within the same cycle.
@@ -19,6 +26,9 @@ class VMResourceManager:
         self.scale_lock = threading.Lock()  # Added lock for scaling control
         self.auto_configure_hotplug = self.config.get("auto_configure_hotplug", True)
         self._hotplug_configured = False
+        # When set, no command that changes the hypervisor is issued; the
+        # service logs what it would have done instead.
+        self.dry_run = bool(self.config.get("dry_run", False))
 
         self.ensure_hotplug_configured()
 
@@ -54,9 +64,7 @@ class VMResourceManager:
                 self.logger.info(f"VM {self.vm_id}: Enabling NUMA for memory hotplug support")
             
             if needs_update:
-                command = f"qm set {self.vm_id} {' '.join(updates)}"
-                output = self.ssh_client.execute_command(command)
-                self._get_command_output(output)
+                self._run(f"qm set {self.vm_id} {' '.join(updates)}", mutating=True)
                 self.logger.info(
                     f"VM {self.vm_id}: Hotplug configuration updated. "
                     "Note: NUMA changes require a VM restart to take effect."
@@ -77,16 +85,65 @@ class VMResourceManager:
             return str(output[0]).strip() if output and output[0] is not None else ""
         return str(output).strip() if output is not None else ""
 
+    @staticmethod
+    def _unpack(result):
+        """Normalise an SSH result into (stdout, stderr, exit_status).
+
+        `execute_command` returns a 3-tuple, but doubles in the test suite and
+        older call paths hand back a bare string; treat that as a success.
+        """
+        if isinstance(result, tuple):
+            out = result[0] if len(result) > 0 and result[0] is not None else ""
+            err = result[1] if len(result) > 1 and result[1] is not None else ""
+            status = result[2] if len(result) > 2 and result[2] is not None else 0
+            return str(out).strip(), str(err).strip(), int(status)
+        return (str(result).strip() if result is not None else ""), "", 0
+
+    def _run(self, command, check=True, mutating=False):
+        """Run a command on the node and return its stdout.
+
+        `check` makes a non-zero exit status raise. Without it, `qm set`
+        failures were invisible: `execute_command` returns the status rather
+        than raising, and every caller discarded it, so the service logged
+        "RAM set to 4096 MB" whether or not the command had worked.
+
+        `mutating` marks a command that changes the hypervisor. Those are the
+        ones dry-run refuses to execute.
+        """
+        if mutating and self.dry_run:
+            self.logger.info(f"[dry-run] VM {self.vm_id}: would run `{command}`")
+            return ""
+
+        result = self.ssh_client.execute_command(command)
+        output, error, status = self._unpack(result)
+
+        if check and status != 0:
+            detail = f": {error}" if error else ""
+            raise CommandFailed(
+                f"`{command}` failed on VM {self.vm_id} with exit status {status}{detail}"
+            )
+        return output
+
     def is_vm_running(self, retries=3, delay=5):
         """Check if the VM is running with retries and improved error handling."""
         for attempt in range(1, retries + 1):
             try:
                 command = f"qm status {self.vm_id} --verbose"
                 self.logger.debug(f"Executing command to check VM status: {command}")
-                output = self.ssh_client.execute_command(command)
-                output_str = self._get_command_output(output)
+                output_str, error, status = self._unpack(
+                    self.ssh_client.execute_command(command)
+                )
                 self.logger.debug(f"Command output: {output_str}")
-        
+
+                if status != 0:
+                    # A VM that does not exist is not a transient fault; retrying
+                    # three times with backoff would just cost 30 seconds.
+                    self.logger.error(
+                        f"`{command}` failed with exit status {status}"
+                        f"{': ' + error if error else ''}"
+                    )
+                    return False
+
                 if "status: running" in output_str.lower():
                     self.logger.info(f"VM {self.vm_id} is running.")
                     return True
@@ -313,41 +370,47 @@ class VMResourceManager:
             raise
 
     def _get_current_vcpus(self):
-        """Retrieve current vCPUs assigned to the VM."""
-        try:
-            command = f"qm config {self.vm_id}"
-            output = self.ssh_client.execute_command(command)
-            output_str = self._get_command_output(output)
-            match = re.search(r"vcpus:\s*(\d+)", output_str)
-            return int(match.group(1)) if match else 1
-        except Exception as e:
-            self.logger.error(f"Failed to retrieve vCPUs: {e}")
-            return 1
+        """Read this value from `qm config`.
+
+        Raises when the command itself fails, rather than substituting a
+        default: a fabricated value would be fed straight into a scaling
+        decision. `vcpus` is omitted from `qm config` when every core is online.
+        """
+        output = self._run(f"qm config {self.vm_id}")
+        match = re.search(r"vcpus:\s*(\d+)", output)
+        return int(match.group(1)) if match else 1
 
     def _get_current_cores(self):
-        """Retrieve current CPU cores assigned to the VM."""
-        try:
-            command = f"qm config {self.vm_id}"
-            output = self.ssh_client.execute_command(command)
-            output_str = self._get_command_output(output)
-            match = re.search(r"cores:\s*(\d+)", output_str)
-            return int(match.group(1)) if match else 1
-        except Exception as e:
-            self.logger.error(f"Failed to retrieve CPU cores: {e}")
-            return 1
+        """Read this value from `qm config`.
+
+        Raises when the command itself fails, rather than substituting a
+        default: a fabricated value would be fed straight into a scaling
+        decision. `cores` is omitted from `qm config` at the Proxmox default of 1.
+        """
+        output = self._run(f"qm config {self.vm_id}")
+        match = re.search(r"cores:\s*(\d+)", output)
+        return int(match.group(1)) if match else 1
 
     def _scaling_limit(self, key, legacy_key, default):
-        """Read a limit from the `scaling_limits` section of the config.
+        """Resolve one scaling limit, most specific source first.
 
-        Falls back to a flat top-level key (older config layout) and finally to
-        `default`, so existing installations keep working after the move to
-        the documented `scaling_limits:` section.
+        Order: the VM's own `scaling_limits` block, then the global
+        `scaling_limits` section, then a flat top-level key (older config
+        layout), then `default`. Per-VM limits let a 2-core web server and a
+        16-core database share one instance, which global-only limits could
+        not express.
         """
+        per_vm = self.vm_config.get("scaling_limits") or {}
+        if isinstance(per_vm, dict) and per_vm.get(key) is not None:
+            return per_vm[key]
+
         limits = self.config.get("scaling_limits") or {}
         if key in limits and limits[key] is not None:
             return limits[key]
+
         if legacy_key in self.config and self.config[legacy_key] is not None:
             return self.config[legacy_key]
+
         return default
 
     def _get_max_cores(self):
@@ -359,16 +422,15 @@ class VMResourceManager:
         return self._scaling_limit("min_cores", "min_cores", 1)
 
     def _get_current_ram(self):
-        """Retrieve current RAM assigned to the VM."""
-        try:
-            command = f"qm config {self.vm_id}"
-            output = self.ssh_client.execute_command(command)
-            output_str = self._get_command_output(output)
-            match = re.search(r"memory:\s*(\d+)", output_str)
-            return int(match.group(1)) if match else 512
-        except Exception as e:
-            self.logger.error(f"Failed to retrieve current RAM: {e}")
-            return 512
+        """Read this value from `qm config`.
+
+        Raises when the command itself fails, rather than substituting a
+        default: a fabricated value would be fed straight into a scaling
+        decision. `memory` is omitted from `qm config` at the Proxmox default of 512 MB.
+        """
+        output = self._run(f"qm config {self.vm_id}")
+        match = re.search(r"memory:\s*(\d+)", output)
+        return int(match.group(1)) if match else 512
 
     def _get_max_ram(self):
         """Retrieve maximum allowed RAM in MB."""
@@ -379,53 +441,30 @@ class VMResourceManager:
         return self._scaling_limit("min_ram_mb", "min_ram", 512)
 
     def _check_hotplug_enabled(self):
-        """Check if hotplug is enabled for CPU and memory on this VM."""
-        try:
-            command = f"qm config {self.vm_id}"
-            output = self.ssh_client.execute_command(command)
-            output_str = self._get_command_output(output)
-            
-            # Check for hotplug setting (e.g., "hotplug: cpu,memory" or "hotplug: network,disk,cpu,memory")
-            hotplug_match = re.search(r"hotplug:\s*([^\n]+)", output_str)
-            if hotplug_match:
-                hotplug_settings = hotplug_match.group(1).lower()
-                cpu_hotplug = 'cpu' in hotplug_settings
-                memory_hotplug = 'memory' in hotplug_settings
-                return cpu_hotplug, memory_hotplug
-            
-            # If no hotplug line, hotplug is disabled
+        """Whether CPU and memory hotplug are enabled for this VM.
+
+        Raises when `qm config` fails. Reporting "no hotplug" on a failed read
+        would silently downgrade a live scale to a reboot-required one.
+        """
+        output = self._run(f"qm config {self.vm_id}")
+        hotplug_match = re.search(r"hotplug:\s*([^\n]+)", output)
+        if not hotplug_match:
+            # No hotplug line at all means hotplug is off.
             return False, False
-        except Exception as e:
-            self.logger.error(f"Failed to check hotplug settings: {e}")
-            return False, False
+        settings = hotplug_match.group(1).lower()
+        return 'cpu' in settings, 'memory' in settings
 
     def _check_numa_enabled(self):
-        """Check if NUMA is enabled on this VM (required for memory hotplug)."""
-        try:
-            command = f"qm config {self.vm_id}"
-            output = self.ssh_client.execute_command(command)
-            output_str = self._get_command_output(output)
-            
-            # Check for numa setting
-            numa_match = re.search(r"numa:\s*(\d+)", output_str)
-            if numa_match:
-                return int(numa_match.group(1)) == 1
-            return False
-        except Exception as e:
-            self.logger.error(f"Failed to check NUMA settings: {e}")
-            return False
+        """Whether NUMA is enabled on this VM (required for memory hotplug)."""
+        output = self._run(f"qm config {self.vm_id}")
+        numa_match = re.search(r"numa:\s*(\d+)", output)
+        return bool(numa_match) and int(numa_match.group(1)) == 1
 
     def _get_balloon_value(self):
-        """Get current balloon memory value."""
-        try:
-            command = f"qm config {self.vm_id}"
-            output = self.ssh_client.execute_command(command)
-            output_str = self._get_command_output(output)
-            match = re.search(r"balloon:\s*(\d+)", output_str)
-            return int(match.group(1)) if match else None
-        except Exception as e:
-            self.logger.debug(f"Failed to get balloon value: {e}")
-            return None
+        """Current balloon target in MB, or None when the key is absent."""
+        output = self._run(f"qm config {self.vm_id}")
+        match = re.search(r"balloon:\s*(\d+)", output)
+        return int(match.group(1)) if match else None
 
     def _set_ram(self, ram):
         """Set the RAM for the VM, using balloon for hotplug if available."""
@@ -436,9 +475,7 @@ class VMResourceManager:
             
             if is_running and memory_hotplug and numa_enabled:
                 # Use balloon for immediate effect on running VMs with hotplug
-                command = f"qm set {self.vm_id} -balloon {ram}"
-                output = self.ssh_client.execute_command(command)
-                self._get_command_output(output)
+                self._run(f"qm set {self.vm_id} -balloon {ram}", mutating=True)
                 self.logger.info(f"RAM balloon set to {ram} MB for VM {self.vm_id} (hotplug applied).")
             elif is_running and memory_hotplug and not numa_enabled:
                 # Hotplug enabled but NUMA not - this won't work properly
@@ -446,9 +483,7 @@ class VMResourceManager:
                     f"VM {self.vm_id} has memory hotplug enabled but NUMA is disabled. "
                     "Memory changes will require a reboot. Enable NUMA for live memory scaling."
                 )
-                command = f"qm set {self.vm_id} -memory {ram}"
-                output = self.ssh_client.execute_command(command)
-                self._get_command_output(output)
+                self._run(f"qm set {self.vm_id} -memory {ram}", mutating=True)
                 self.logger.info(f"RAM config set to {ram} MB for VM {self.vm_id} (requires reboot).")
             elif is_running:
                 # No hotplug - warn and set config only
@@ -456,15 +491,11 @@ class VMResourceManager:
                     f"VM {self.vm_id} does not have memory hotplug enabled. "
                     "Memory changes will require a reboot. Enable 'hotplug: memory' and NUMA for live scaling."
                 )
-                command = f"qm set {self.vm_id} -memory {ram}"
-                output = self.ssh_client.execute_command(command)
-                self._get_command_output(output)
+                self._run(f"qm set {self.vm_id} -memory {ram}", mutating=True)
                 self.logger.info(f"RAM config set to {ram} MB for VM {self.vm_id} (requires reboot).")
             else:
                 # VM not running - just set memory config
-                command = f"qm set {self.vm_id} -memory {ram}"
-                output = self.ssh_client.execute_command(command)
-                self._get_command_output(output)
+                self._run(f"qm set {self.vm_id} -memory {ram}", mutating=True)
                 self.logger.info(f"RAM set to {ram} MB for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set RAM to {ram}: {e}")
@@ -549,9 +580,7 @@ class VMResourceManager:
     def _set_cores(self, cores):
         """Set the CPU cores for the VM (config change, requires reboot for running VMs)."""
         try:
-            command = f"qm set {self.vm_id} -cores {cores}"
-            output = self.ssh_client.execute_command(command)
-            self._get_command_output(output)
+            self._run(f"qm set {self.vm_id} -cores {cores}", mutating=True)
             self.logger.debug(f"CPU cores config set to {cores} for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set CPU cores to {cores}: {e}")
@@ -560,9 +589,7 @@ class VMResourceManager:
     def _set_vcpus(self, vcpus):
         """Set the vCPUs for the VM (can be hotplugged if enabled)."""
         try:
-            command = f"qm set {self.vm_id} -vcpus {vcpus}"
-            output = self.ssh_client.execute_command(command)
-            self._get_command_output(output)
+            self._run(f"qm set {self.vm_id} -vcpus {vcpus}", mutating=True)
             self.logger.debug(f"vCPUs set to {vcpus} for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set vCPUs to {vcpus}: {e}")

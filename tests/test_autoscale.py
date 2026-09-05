@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch, call
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from metrics import build_registry
 from autoscale import NotificationManager, ConfigurationError, VMAutoscaler
 
 
@@ -212,6 +213,8 @@ class TestHandleCPUScaling(unittest.TestCase):
         a.logger = make_logger()
         a.notification_manager = MagicMock()
         a.billing_tracker = None
+        a.dry_run = False
+        a.metrics = build_registry()
         return a
 
     def test_scales_up_on_high_cpu(self):
@@ -269,6 +272,8 @@ class TestHandleRAMScaling(unittest.TestCase):
         a.logger = make_logger()
         a.notification_manager = MagicMock()
         a.billing_tracker = None
+        a.dry_run = False
+        a.metrics = build_registry()
         return a
 
     def test_scales_up_on_high_ram(self):
@@ -504,6 +509,8 @@ class TestUnreadableMetricsNeverScale(unittest.TestCase):
         a.logger = make_logger()
         a.notification_manager = MagicMock()
         a.billing_tracker = None
+        a.dry_run = False
+        a.metrics = build_registry()
         a._vm_managers = {}
         return a
 

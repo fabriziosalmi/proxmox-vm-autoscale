@@ -34,7 +34,7 @@ pytest tests/test_vm_hotplug.py -v           # one file
 pytest -k cooldown -v                        # by name
 ```
 
-170 tests, under a second. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
+201 tests, under a second. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
 
 ## What a good change looks like
 
@@ -94,12 +94,11 @@ Pulled from [known limitations](/reference/limitations), roughly by value:
 
 | Area | What is needed |
 |---|---|
-| **Dry-run mode** | Log what would happen without issuing commands. The most requested missing safety net |
-| **Command result checking** | `qm set` failures are logged as successes because `execute_command` does not raise on a non-zero exit |
-| **Metrics endpoint** | Prometheus exposition for cycle count, decisions, failures |
-| **Per-VM scaling limits** | `scaling_limits` is global; thresholds are now per-VM but limits are not |
+| **Guest-side verification** | `qm set` failures are caught now, but QEMU accepting a command is not the guest honouring it |
+| **Per-node host limits** | `host_limits` is still one pair of numbers for every node |
 | **Encrypted SSH keys** | A passphrase option, or ssh-agent support |
 | **Configurable step sizes** | Fixed at 1 core and 512 MB |
+| **Smoothing** | One instantaneous sample per cycle; a moving average would cut flapping |
 
 ## Reporting bugs
 

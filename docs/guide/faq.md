@@ -109,11 +109,11 @@ Realistically, the two risks are memory and CPU removal. Ballooning memory away 
 
 ### Is there a dry-run mode?
 
-No. If the service is running and a threshold is crossed, the command is executed. The nearest approximation is `scaling_enabled: false` on every VM, which produces the monitoring log lines with no actions.
+Yes — `dry_run: true`. Everything is evaluated and nothing is changed: no `qm set` is issued, the log records what would have happened, notifications carry a `[DRY RUN]` prefix, and billing records nothing because nothing changed. It is the right way to start on a fleet you did not build yourself.
 
 ### Is it safe for production?
 
-It is a small single-process service with 170 unit tests, run by its author and by others across 302 stars and 23 forks. It is also alpha-versioned software that holds root credentials, has no dry-run, and has known defects documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
+It is a small single-process service with 201 unit tests, run by its author and by others across 302 stars and 23 forks. It holds root credentials and has known constraints documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
 
 ## Project
 

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Dry-run mode** (`dry_run: true`). Everything is evaluated and nothing is
+  changed: no command that touches a VM is issued, hotplug auto-configuration
+  included. Reads still happen, so the evaluation is real; the cooldown still
+  applies, so the cadence in the log is the cadence you would get.
+  Notifications carry a `[DRY RUN]` prefix and billing records nothing.
+- **Prometheus metrics endpoint** (`metrics.enabled`), off by default and
+  localhost-bound when on. Exports cycle count and duration, per-VM CPU/RAM,
+  running state and errors, scaling actions by resource and direction, scaling
+  failures, per-node utilisation and gate blocks. A metric that could not be
+  read has its series **removed** rather than reported as zero. Standard
+  library only — no new dependency.
+- **Per-VM `scaling_limits`.** A VM entry may override any of the global
+  limits, so a 2-core web server and a 16-core database can share one instance.
+  Resolution: the VM's own block, then the global section, then the legacy flat
+  keys, then the built-in default.
+- `tests/test_dryrun_metrics_limits.py`: 31 regression tests (201 total).
+
+### Fixed
+- **A failed `qm set` is no longer reported as a success.** `execute_command`
+  returns the exit status rather than raising, and every caller discarded it,
+  so a command that exited non-zero still produced
+  `Increased cores to 5 (hotplug applied)` in the log, a success notification,
+  a billing record and a consumed cooldown — which then delayed the retry by a
+  full `scale_cooldown`. Commands now run through a checked helper that raises
+  `CommandFailed` with the command, the exit status and stderr.
+- **A failed `qm config` read no longer invents a value.** The getters returned
+  1 core, 1 vCPU or 512 MB when the command failed, and those fabricated
+  numbers went straight into a scaling decision — the service would happily
+  "scale up from 1 core" a guest that actually had eight. They now raise. An
+  *absent* key still means the documented Proxmox default, because that is what
+  absence legitimately means.
+- **A missing VM is no longer retried for 30 seconds.** `qm status` exiting
+  non-zero was treated as a transient fault and retried three times with
+  backoff. It now fails fast and logs stderr.
+
 ## [1.5.0] - 2026-09-05
 
 > **Upgrade note.** Three behaviour changes land together:

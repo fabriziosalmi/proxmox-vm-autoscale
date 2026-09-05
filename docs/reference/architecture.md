@@ -105,13 +105,22 @@ It is also a context manager, though `process_vm` uses explicit `connect()` / `c
 
 One method. Runs `pvesh get /nodes/$(hostname)/status --output-format json`, parses it, compares against the two ceilings, returns a boolean. Raises on JSON errors and missing fields — which surfaces as a per-VM `Error processing VM ...` rather than stopping the service.
 
+### `metrics.py`
+
+A small Prometheus registry and an HTTP endpoint served from a daemon thread,
+using only `http.server` — a client library is not worth a new dependency for
+one endpoint on a service whose install story is three apt packages. Disabled
+by default and localhost-bound when enabled. A metric that could not be read
+has its series **removed** rather than set to zero.
+
 ### `billing_tracker.py`
 
 Three dataclasses and a tracker. State is a single JSON file rewritten in full on every record. The main loop asks it once per cycle whether a billing period has elapsed and, when one has, generates a costed CSV per VM and fires any configured webhook.
 
 ## Threading and concurrency
 
-Effectively single-threaded. `threading.Lock` in `VMResourceManager` guards the cooldown timestamps, but nothing spawns a thread: hosts and VMs are processed sequentially, and each SSH command blocks.
+Effectively single-threaded, apart from the optional metrics endpoint, which
+serves from its own daemon thread against a lock-guarded registry. `threading.Lock` in `VMResourceManager` guards the cooldown timestamps, but nothing spawns a thread: hosts and VMs are processed sequentially, and each SSH command blocks.
 
 Consequences:
 
@@ -156,7 +165,7 @@ Realistic places to add behaviour without restructuring:
 
 ## Tests
 
-`tests/` holds 170 unit tests across eight files, run with `pytest`. SSH is mocked throughout, so there is no integration test against a real Proxmox node — but metrics now come from `pvesh --output-format json`, and the tests exercise that parsing against realistic payloads rather than a scraped table.
+`tests/` holds 201 unit tests across nine files, run with `pytest`. SSH is mocked throughout, so there is no integration test against a real Proxmox node — but metrics now come from `pvesh --output-format json`, and the tests exercise that parsing against realistic payloads rather than a scraped table.
 
 ```bash
 python3 -m pytest tests/ -q

@@ -13,6 +13,10 @@ class HostResourceChecker:
         """
         self.ssh_client = ssh_client
         self.logger = logging.getLogger("host_resource_checker")
+        # Last computed percentages, so callers can report them without
+        # running the query a second time.
+        self.last_cpu_percent = None
+        self.last_ram_percent = None
 
     def check_host_resources(self, max_host_cpu_percent, max_host_ram_percent):
         """
@@ -56,6 +60,9 @@ class HostResourceChecker:
 
             # Calculate RAM usage based on 'used' (excludes buff/cache, matches Proxmox WebUI)
             host_ram_usage = (used_mem / total_mem) * 100
+
+            self.last_cpu_percent = host_cpu_usage
+            self.last_ram_percent = host_ram_usage
             
             # Log resource usage
             self.logger.info(f"Host CPU Usage: {host_cpu_usage:.2f}%, "

@@ -14,6 +14,7 @@ from email.mime.multipart import MIMEMultipart
 from vm_manager import VMResourceManager
 from host_resource_checker import HostResourceChecker
 from billing_tracker import BillingTracker
+from metrics import MetricsServer, build_registry
 from functools import wraps
 from typing import Union, List, Optional, Dict, Any
 
@@ -129,6 +130,8 @@ class NotificationManager:
         sent = False
         errors = []
         formatted_message = self._format_message(message)
+        if self.config.get('dry_run', False):
+            formatted_message = f"[DRY RUN] {formatted_message}"
 
         if self.config.get('gotify', {}).get('enabled', False):
             try:
@@ -166,6 +169,16 @@ class VMAutoscaler:
         # Last observed running state per VM, so billing records transitions
         # rather than one entry per poll.
         self._vm_states: Dict[str, bool] = {}
+        self.dry_run = bool(self.config.get('dry_run', False))
+        self.metrics = build_registry()
+        self.metrics.set('vm_autoscale_build_info', 1,
+                         {'dry_run': str(self.dry_run).lower()})
+        self._metrics_server = self._start_metrics_server()
+        if self.dry_run:
+            self.logger.warning(
+                "DRY RUN: no command that changes a VM will be issued. "
+                "Scaling decisions are logged as they would be taken."
+            )
         
         # Initialize billing tracker if enabled
         self.billing_enabled = self.config.get('billing', {}).get('enabled', False)
@@ -224,10 +237,12 @@ class VMAutoscaler:
             )
             ssh_client.connect()
 
-            vm_manager = self._get_vm_manager(ssh_client, vm['vm_id'])
+            vm_manager = self._get_vm_manager(ssh_client, vm)
 
             # First check if VM is running
             running = vm_manager.is_vm_running()
+            self.metrics.set('vm_autoscale_vm_running', 1 if running else 0,
+                             {'vm_id': str(vm['vm_id'])})
             self._record_vm_state(vm['vm_id'], running)
             if not running:
                 self.logger.info(f"VM {vm['vm_id']} is not running. Skipping scaling.")
@@ -235,9 +250,13 @@ class VMAutoscaler:
 
             # Check host resources first
             host_checker = HostResourceChecker(ssh_client)
-            if not host_checker.check_host_resources(
-                    self.config['host_limits']['max_host_cpu_percent'],
-                    self.config['host_limits']['max_host_ram_percent']):
+            within_limits = host_checker.check_host_resources(
+                self.config['host_limits']['max_host_cpu_percent'],
+                self.config['host_limits']['max_host_ram_percent'])
+            self._record_host_metrics(host['name'], host_checker)
+            if not within_limits:
+                self.metrics.inc('vm_autoscale_host_gate_blocked_total',
+                                 {'host': host['name']})
                 self.logger.warning(f"Host {host['name']} resources maxed out. Skipping scaling.")
                 return
 
@@ -250,6 +269,8 @@ class VMAutoscaler:
                 f"CPU: {self._format_usage(current_cpu_usage)}, "
                 f"RAM: {self._format_usage(current_ram_usage)}"
             )
+
+            self._record_usage_metrics(vm['vm_id'], current_cpu_usage, current_ram_usage)
 
             if current_cpu_usage is None and current_ram_usage is None:
                 self.logger.warning(
@@ -272,6 +293,8 @@ class VMAutoscaler:
                         )
                         self.logger.debug(f"CPU scaling completed for VM {vm['vm_id']}")
                     except Exception as e:
+                        self.metrics.inc('vm_autoscale_scaling_failures_total',
+                                         {'vm_id': str(vm['vm_id']), 'resource': 'cpu'})
                         self.logger.error(f"CPU scaling failed for VM {vm['vm_id']}: {str(e)}")
                         # Continue to RAM scaling even if CPU scaling fails
 
@@ -289,9 +312,12 @@ class VMAutoscaler:
                         )
                         self.logger.debug(f"RAM scaling completed for VM {vm['vm_id']}")
                     except Exception as e:
+                        self.metrics.inc('vm_autoscale_scaling_failures_total',
+                                         {'vm_id': str(vm['vm_id']), 'resource': 'ram'})
                         self.logger.error(f"RAM scaling failed for VM {vm['vm_id']}: {str(e)}")
 
         except Exception as e:
+            self.metrics.inc('vm_autoscale_vm_errors_total', {'vm_id': str(vm['vm_id'])})
             self.logger.error(f"Error processing VM {vm['vm_id']} on host {host['name']}: {e}")
             self.notification_manager.send_notification(
                 f"Error processing VM {vm['vm_id']} on host {host['name']}: {e}",
@@ -301,17 +327,41 @@ class VMAutoscaler:
             if ssh_client:
                 ssh_client.close()
 
-    def _get_vm_manager(self, ssh_client: SSHClient, vm_id: Any) -> VMResourceManager:
-        """Return the VMResourceManager for `vm_id`, creating it on first use.
+    def _start_metrics_server(self) -> Optional[MetricsServer]:
+        """Start the Prometheus endpoint when it is enabled in the config.
 
-        A fresh SSH connection is opened every cycle, so the cached manager is
-        rebound to the current client. Keeping the manager itself alive is what
-        makes `scale_cooldown` meaningful across cycles.
+        Off by default, and bound to localhost when on: this process holds root
+        credentials, and the series it exposes name your nodes and VMIDs with
+        no authentication in front of them.
         """
+        cfg = self.config.get('metrics') or {}
+        if not cfg.get('enabled', False):
+            return None
+
+        server = MetricsServer(
+            self.metrics, self.logger,
+            bind=cfg.get('bind', '127.0.0.1'),
+            port=int(cfg.get('port', 9808)),
+            path=cfg.get('path', '/metrics'),
+        )
+        return server if server.start() else None
+
+    def _get_vm_manager(self, ssh_client: SSHClient,
+                        vm: Any) -> VMResourceManager:
+        """Return the VMResourceManager for a VM, creating it on first use.
+
+        Accepts either the VM's config entry or a bare id. A fresh SSH
+        connection is opened every cycle, so the cached manager is rebound to
+        the current client. Keeping the manager itself alive is what makes
+        `scale_cooldown` meaningful across cycles.
+        """
+        vm_config = vm if isinstance(vm, dict) else {}
+        vm_id = vm['vm_id'] if isinstance(vm, dict) else vm
+
         key = str(vm_id)
         manager = self._vm_managers.get(key)
         if manager is None:
-            manager = VMResourceManager(ssh_client, vm_id, self.config)
+            manager = VMResourceManager(ssh_client, vm_id, self.config, vm_config)
             self._vm_managers[key] = manager
         else:
             manager.ssh_client = ssh_client
@@ -368,6 +418,35 @@ class VMAutoscaler:
 
         return thresholds
 
+    def _record_host_metrics(self, host_name: str, checker: HostResourceChecker) -> None:
+        """Publish the node readings the gate just used."""
+        if checker.last_cpu_percent is not None:
+            self.metrics.set('vm_autoscale_host_cpu_percent',
+                             checker.last_cpu_percent, {'host': host_name})
+        if checker.last_ram_percent is not None:
+            self.metrics.set('vm_autoscale_host_ram_percent',
+                             checker.last_ram_percent, {'host': host_name})
+
+    def _record_usage_metrics(self, vm_id: Any, cpu: Optional[float],
+                              ram: Optional[float]) -> None:
+        """Publish guest usage, dropping the series when it is unreadable.
+
+        An absent series is not the same as a zero one. Emitting 0 for a metric
+        that could not be read would put the same lie into your dashboards that
+        it used to put into the scaling decision.
+        """
+        labels = {'vm_id': str(vm_id)}
+        for name, value, resource in (
+            ('vm_autoscale_vm_cpu_percent', cpu, 'cpu'),
+            ('vm_autoscale_vm_ram_percent', ram, 'ram'),
+        ):
+            if value is None:
+                self.metrics.unset(name, labels)
+                self.metrics.inc('vm_autoscale_metric_unavailable_total',
+                                 {'vm_id': str(vm_id), 'resource': resource})
+            else:
+                self.metrics.set(name, value, labels)
+
     @staticmethod
     def _format_usage(value: Optional[float]) -> str:
         """Render a usage figure for the log, distinguishing unknown from zero."""
@@ -382,6 +461,9 @@ class VMAutoscaler:
         thresholds = thresholds or self.config['scaling_thresholds']['cpu']
         if cpu_usage > thresholds['high']:
             if vm_manager.scale_cpu('up'):
+                self.metrics.inc('vm_autoscale_scaling_actions_total',
+                                 {'vm_id': str(vm_id), 'resource': 'cpu',
+                                  'direction': 'up'})
                 self.notification_manager.send_notification(
                     f"Scaled up CPU for VM {vm_id} due to high usage ({cpu_usage}%).",
                     priority=7
@@ -391,6 +473,9 @@ class VMAutoscaler:
                     self._record_billing_spec(vm_manager, vm_id)
         elif cpu_usage < thresholds['low']:
             if vm_manager.scale_cpu('down'):
+                self.metrics.inc('vm_autoscale_scaling_actions_total',
+                                 {'vm_id': str(vm_id), 'resource': 'cpu',
+                                  'direction': 'down'})
                 self.notification_manager.send_notification(
                     f"Scaled down CPU for VM {vm_id} due to low usage ({cpu_usage}%).",
                     priority=5
@@ -408,6 +493,9 @@ class VMAutoscaler:
         thresholds = thresholds or self.config['scaling_thresholds']['ram']
         if ram_usage > thresholds['high']:
             if vm_manager.scale_ram('up'):
+                self.metrics.inc('vm_autoscale_scaling_actions_total',
+                                 {'vm_id': str(vm_id), 'resource': 'ram',
+                                  'direction': 'up'})
                 self.notification_manager.send_notification(
                     f"Scaled up RAM for VM {vm_id} due to high usage ({ram_usage}%).",
                     priority=7
@@ -417,6 +505,9 @@ class VMAutoscaler:
                     self._record_billing_spec(vm_manager, vm_id)
         elif ram_usage < thresholds['low']:
             if vm_manager.scale_ram('down'):
+                self.metrics.inc('vm_autoscale_scaling_actions_total',
+                                 {'vm_id': str(vm_id), 'resource': 'ram',
+                                  'direction': 'down'})
                 self.notification_manager.send_notification(
                     f"Scaled down RAM for VM {vm_id} due to low usage ({ram_usage}%).",
                     priority=5
@@ -433,7 +524,7 @@ class VMAutoscaler:
         Nothing called this before, which is why every billing report showed
         100% uptime.
         """
-        if not self.billing_tracker:
+        if not self.billing_tracker or self.dry_run:
             return
 
         key = str(vm_id)
@@ -455,7 +546,7 @@ class VMAutoscaler:
         billing produced a growing state file and no CSV, no webhook and no
         report of any kind.
         """
-        if not self.billing_tracker:
+        if not self.billing_tracker or self.dry_run:
             return
 
         try:
@@ -486,6 +577,9 @@ class VMAutoscaler:
 
     def _record_billing_spec(self, vm_manager: VMResourceManager, vm_id: int) -> None:
         """Record current VM spec for billing after a scaling operation."""
+        if self.dry_run:
+            # Nothing was changed, so there is no new spec to bill for.
+            return
         try:
             current_cores = vm_manager._get_current_cores()
             current_ram = vm_manager._get_current_ram()
@@ -502,12 +596,18 @@ class VMAutoscaler:
         self.logger.info("Starting VM Autoscaler")
         while True:
             try:
+                cycle_started = time.monotonic()
                 for host in self.config['proxmox_hosts']:
                     for vm in self.config['virtual_machines']:
                         if vm['proxmox_host'] == host['name'] and vm.get('scaling_enabled', False):
                             self.process_vm(host, vm)
 
                 self._maybe_generate_billing_reports()
+
+                self.metrics.inc('vm_autoscale_cycles_total')
+                self.metrics.set('vm_autoscale_cycle_duration_seconds',
+                                 time.monotonic() - cycle_started)
+                self.metrics.set('vm_autoscale_last_cycle_timestamp_seconds', time.time())
 
                 check_interval = self.config.get('check_interval', 300)  # Default to 5 minutes
                 time.sleep(check_interval)
@@ -516,6 +616,7 @@ class VMAutoscaler:
                 self.logger.info("Shutting down VM Autoscaler")
                 break
             except Exception as e:
+                self.metrics.inc('vm_autoscale_cycle_errors_total')
                 self.logger.error(f"Unexpected error in main loop: {e}")
                 self.notification_manager.send_notification(
                     f"Unexpected error in VM Autoscaler: {e}",

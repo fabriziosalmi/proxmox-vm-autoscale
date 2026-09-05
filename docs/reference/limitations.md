@@ -19,18 +19,6 @@ VMs are matched to hosts by exact string equality on `name`. A mismatch means th
 
 **Workaround:** after any config change, confirm every managed VM appears in a `VM <id> current usage` line within one cycle.
 
-### Command failures are reported as successes
-
-`execute_command` returns output and exit status without raising on a non-zero status, and the callers that issue `qm set` discard the result. So:
-
-```
-[INFO] RAM balloon set to 4096 MB for VM 101 (hotplug applied).
-```
-
-is logged whether or not `qm set` succeeded, and whether or not the guest honoured it.
-
-**Workaround:** verify with `qm config <vmid>` when a change matters.
-
 ## Documented-but-absent behaviour
 
 ### `logging` in `config.yaml` is inert by default
@@ -56,10 +44,6 @@ A node above `max_host_cpu_percent` or `max_host_ram_percent` has *all* scaling 
 ### Step sizes are not configurable
 
 Fixed at 1 core and 512 MB per action, in `vm_manager.py`. Recovering from a large jump takes many cycles.
-
-### Limits are global
-
-`scaling_limits` applies to every VM. A 2-core web server and a 16-core database cannot have different ceilings in one instance.
 
 ### Single instance, no HA
 
@@ -107,13 +91,11 @@ The shipped unit sets `User=root` with no systemd sandboxing directives.
 
 `v1.2.0` was published in December 2025 and `v0.1.1` in April 2026 — the two release lines were never reconciled. `v1.2.0` is now [documented retroactively](/reference/changelog) and numbering is monotonic from `v1.3.0` onwards, but the historical tags stay as they are.
 
-### No dry-run mode
+### A guest can still refuse a change the hypervisor accepted
 
-There is no way to see what the service *would* do. The closest approximation is `scaling_enabled: false` everywhere, which produces the monitoring output without acting.
+`qm set` failures are now detected, but QEMU accepting a command is not the same as the guest honouring it. A missing balloon driver, or a kernel that refuses a CPU hot-unplug, produces a successful command and no change inside the guest.
 
-### No metrics endpoint
-
-No Prometheus exporter, no health endpoint, no structured events. Monitoring means parsing the log — see [operations](/guide/operations#monitoring-the-autoscaler-itself).
+**Workaround:** verify from inside the guest — `nproc`, `free -m` — when a change matters.
 
 ---
 

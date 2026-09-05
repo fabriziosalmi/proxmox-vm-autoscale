@@ -54,11 +54,30 @@ virtual_machines:
     scaling_enabled: true
     cpu_scaling: true
     ram_scaling: true
+    # Optional per-VM override of the global scaling_limits. Same keys; any
+    # you omit fall back to the global value.
+    scaling_limits:
+      max_cores: 16
+      max_ram_mb: 32768
     thresholds:
       cpu_high: 80
       cpu_low: 20
       ram_high: 80
       ram_low: 20
+
+# Dry run: evaluate everything and change nothing. No `qm set` is issued; the
+# log records what would have happened, and notifications are prefixed
+# [DRY RUN]. Billing records nothing, since nothing changed.
+dry_run: false
+
+# Prometheus metrics endpoint (optional).
+# Off by default and bound to localhost when on: this service holds root
+# credentials, the series name your nodes and VMIDs, and there is no auth.
+metrics:
+  enabled: false
+  bind: 127.0.0.1
+  port: 9808
+  path: /metrics
 
 # SSH host key verification
 #   accept-new  trust a host the first time it is seen, record its key, and

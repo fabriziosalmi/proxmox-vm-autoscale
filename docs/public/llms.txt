@@ -11,7 +11,9 @@ creates, clones, destroys or migrates a VM, does not handle LXC containers, and
 does not scale disk or network. Decisions come from a single instantaneous
 sample per polling cycle, compared against global thresholds; one step (1 core
 or 512 MB) per resource per cycle, bounded by configured limits and a
-per-resource cooldown. There is no dry-run mode.
+per-resource cooldown. `dry_run: true` evaluates everything and changes nothing.
+An optional Prometheus endpoint (off by default, localhost-bound) exports cycle,
+per-VM and per-node series.
 
 Key constraints a reader should know: the service authenticates to Proxmox
 nodes as root and holds those credentials in plain text in config.yaml. SSH
