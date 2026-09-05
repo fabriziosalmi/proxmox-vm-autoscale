@@ -1,0 +1,15 @@
+{
+  "name": "proxmox-vm-autoscale-docs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Documentation site for Proxmox VM Autoscale",
+  "license": "MIT",
+  "scripts": {
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

@@ -16,3 +16,8 @@ Thumbs.db
 # Logs and config
 *.log
 config.local.yaml
+
+# Node / VitePress docs
+node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/

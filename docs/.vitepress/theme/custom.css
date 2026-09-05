@@ -1,0 +1,48 @@
+/**
+ * Brand palette. Proxmox orange as the accent, kept desaturated in dark mode
+ * so code blocks and callouts stay readable rather than glowing.
+ */
+:root {
+  --vp-c-brand-1: #c25a00;
+  --vp-c-brand-2: #e57000;
+  --vp-c-brand-3: #e57000;
+  --vp-c-brand-soft: rgba(229, 112, 0, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #e57000 30%, #f0a500);
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    rgba(229, 112, 0, 0.5),
+    rgba(240, 165, 0, 0.35)
+  );
+  --vp-home-hero-image-filter: blur(48px);
+}
+
+.dark {
+  --vp-c-brand-1: #ff9d4d;
+  --vp-c-brand-2: #e57000;
+  --vp-c-brand-3: #c25a00;
+  --vp-c-brand-soft: rgba(229, 112, 0, 0.18);
+}
+
+/* Wide reference tables must scroll inside themselves rather than pushing the
+   page sideways. VitePress already sets `display: block; overflow-x: auto` for
+   this — do NOT override `display` here, or the scroll container disappears and
+   the right-hand columns become unreachable on narrow viewports. The only
+   change is letting a narrow table shrink to its content instead of always
+   filling the column. */
+.vp-doc table {
+  width: max-content;
+  max-width: 100%;
+}
+
+/* Keys and values in reference tables read better unwrapped. */
+.vp-doc td code,
+.vp-doc th code {
+  white-space: nowrap;
+}
+
+/* Slightly tighter feature cards on the home page. */
+.VPFeature .title {
+  font-size: 15px;
+}
