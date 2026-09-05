@@ -24,8 +24,11 @@ VMAutoscaler(config_path: str, logging_config_path: Optional[str] = None)
 | `_load_config` | `(config_path: str) -> dict` | Static. Raises `FileNotFoundError` or `ConfigurationError` |
 | `_setup_logging` | `(path: Optional[str]) -> Logger` | JSON config wins over the YAML `logging` section |
 | `_get_vm_manager` | `(ssh_client, vm_id) -> VMResourceManager` | Cached per VMID; rebinds the SSH client |
-| `_handle_cpu_scaling` | `(vm_manager, vm_id, cpu_usage: float) -> None` | |
-| `_handle_ram_scaling` | `(vm_manager, vm_id, ram_usage: float) -> None` | |
+| `_handle_cpu_scaling` | `(vm_manager, vm_id, cpu_usage, thresholds=None) -> None` | Ignores a `None` reading |
+| `_handle_ram_scaling` | `(vm_manager, vm_id, ram_usage, thresholds=None) -> None` | Ignores a `None` reading |
+| `_thresholds_for` | `(vm: dict, resource: str) -> dict` | Per-VM overrides on top of the global thresholds |
+| `_record_vm_state` | `(vm_id, running: bool) -> None` | Writes a billing record on transitions only |
+| `_maybe_generate_billing_reports` | `() -> None` | Emits period reports when due |
 | `_record_billing_spec` | `(vm_manager, vm_id) -> None` | No-op when billing is disabled |
 
 ### `class NotificationManager`
@@ -90,7 +93,8 @@ Failing getters return conservative defaults — `1` core, `512` MB — rather t
 ### `class SSHClient`
 
 ```python
-SSHClient(host, user, password=None, key_path=None, port=22)
+SSHClient(host, user, password=None, key_path=None, port=22,
+          host_key_policy="accept-new", known_hosts="/etc/vm_autoscale/known_hosts")
 ```
 
 | Method | Signature | Notes |
@@ -99,6 +103,7 @@ SSHClient(host, user, password=None, key_path=None, port=22)
 | `execute_command` | `(command: str, timeout=30) -> tuple[str, str, int]` | `(stdout, stderr, exit_status)`. Retries with reconnect; **does not raise on non-zero exit** |
 | `close` | `() -> None` | Idempotent |
 | `_load_private_key` | `() -> paramiko.PKey` | Any supported key type; raises `SSHException` naming the path on failure |
+| `_apply_host_key_policy` | `(client) -> None` | Applies `accept-new` / `strict` / `auto` and loads `known_hosts` |
 | `is_connected` | `() -> bool` | |
 | `__enter__` / `__exit__` | | Context-manager support |
 
@@ -130,14 +135,18 @@ Creates `csv_output_dir` and loads `billing_data.json` on construction.
 
 | Method | Signature | Called by the service? |
 |---|---|---|
-| `record_spec_change` | `(vm_id, cpu_cores, ram_mb, timestamp=None) -> None` | **Yes** |
-| `record_vm_state_change` | `(vm_id, state: "started" \| "stopped", timestamp=None) -> None` | No |
-| `set_vm_name` | `(vm_id, vm_name) -> None` | No |
-| `calculate_billing_period` | `(vm_id, period_start, period_end) -> BillingReport` | No |
-| `export_csv` | `(report, output_path=None) -> str` | No |
-| `run_webhook` | `(report) -> None` | No |
-| `generate_period_report` | `(vm_id) -> Optional[BillingReport]` | No |
+| `record_spec_change` | `(vm_id, cpu_cores, ram_mb, timestamp=None) -> None` | **Yes**, after each scaling action |
+| `record_vm_state_change` | `(vm_id, state: "started" \| "stopped", timestamp=None) -> None` | **Yes**, on transitions only |
+| `is_period_due` | `(now=None) -> bool` | **Yes**, once per cycle; the first call starts the clock |
+| `generate_period_report` | `(vm_id) -> Optional[BillingReport]` | **Yes**, when a period elapses |
+| `get_last_report_time` / `set_last_report_time` | | **Yes** |
+| `calculate_billing_period` | `(vm_id, period_start, period_end) -> BillingReport` | Via `generate_period_report` |
+| `export_csv` | `(report, output_path=None) -> str` | Via `generate_period_report` |
+| `run_webhook` | `(report) -> None` | Via `generate_period_report` |
+| `set_vm_name` | `(vm_id, vm_name) -> None` | No — call it yourself |
 
+Costs are charged only for the hours a VM was up, and the spec in effect at
+`period_start` is carried in so a VM that never changed size is still billed.
 Every write persists the entire state file. See [billing](/guide/billing).
 
 ### Dataclasses

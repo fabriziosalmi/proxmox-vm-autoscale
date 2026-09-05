@@ -14,14 +14,16 @@ or 512 MB) per resource per cycle, bounded by configured limits and a
 per-resource cooldown. There is no dry-run mode.
 
 Key constraints a reader should know: the service authenticates to Proxmox
-nodes as root and holds those credentials in plain text in config.yaml; SSH
-host keys are accepted automatically without pinning; the SSH key must be
-unencrypted, though any key type works. Guest metrics come from
+nodes as root and holds those credentials in plain text in config.yaml. SSH
+host keys are verified — the default `accept-new` policy records a key on first
+contact and refuses to connect if it changes, and `strict` requires a
+pre-populated known_hosts — but the SSH key itself must be unencrypted, though
+any key type works. Guest metrics come from
 `pvesh get /cluster/resources --output-format json`; a metric that cannot be
 read is reported as unavailable and scaling is skipped for that cycle, never
-treated as zero. Per-VM thresholds shown in the example config are not read by
-the code. Billing records spec changes automatically but does not generate
-reports without being called explicitly.
+treated as zero. Thresholds can be overridden per VM; scaling limits cannot.
+Billing records spec changes and start/stop transitions, and emits a costed CSV
+once each billing period elapses, charging only for the hours a VM was up.
 
 ## Getting started
 

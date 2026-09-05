@@ -106,6 +106,9 @@ class BillingTracker:
         self._spec_changes: Dict[str, List[SpecChangeRecord]] = {}
         self._state_changes: Dict[str, List[StateChangeRecord]] = {}
         self._vm_names: Dict[str, str] = {}
+        # When the last period report was emitted, so the service knows when
+        # the next one is due across restarts.
+        self._last_report_time: Optional[datetime] = None
         
         # Billing parameters
         self.cost_per_cpu_hour = self.billing_config.get('cost_per_cpu_core_per_hour', 0.01)
@@ -153,6 +156,11 @@ class BillingTracker:
                     ]
                 
                 self._vm_names = data.get('vm_names', {})
+
+                last_report = data.get('last_report_time')
+                if last_report:
+                    self._last_report_time = datetime.fromisoformat(last_report)
+
                 self.logger.debug(f"Loaded billing data from {data_file}")
             except Exception as e:
                 self.logger.warning(f"Failed to load billing data: {e}")
@@ -170,7 +178,10 @@ class BillingTracker:
                     vm_id: [r.to_dict() for r in records]
                     for vm_id, records in self._state_changes.items()
                 },
-                'vm_names': self._vm_names
+                'vm_names': self._vm_names,
+                'last_report_time': (
+                    self._last_report_time.isoformat() if self._last_report_time else None
+                ),
             }
             with open(data_file, 'w') as f:
                 json.dump(data, f, indent=2)
@@ -178,6 +189,27 @@ class BillingTracker:
         except Exception as e:
             self.logger.error(f"Failed to save billing data: {e}")
     
+    def get_last_report_time(self) -> Optional[datetime]:
+        """When the last period report was generated, or None if never."""
+        return self._last_report_time
+
+    def set_last_report_time(self, when: Optional[datetime] = None) -> None:
+        """Record that a period report has just been generated."""
+        self._last_report_time = when or datetime.now()
+        self._save_data()
+
+    def is_period_due(self, now: Optional[datetime] = None) -> bool:
+        """Whether a full billing period has elapsed since the last report.
+
+        The first call starts the clock rather than emitting an empty report
+        for a period the service was not running for.
+        """
+        now = now or datetime.now()
+        if self._last_report_time is None:
+            self.set_last_report_time(now)
+            return False
+        return (now - self._last_report_time) >= timedelta(days=self.billing_period_days)
+
     def set_vm_name(self, vm_id: str, vm_name: str) -> None:
         """Set the human-readable name for a VM."""
         self._vm_names[str(vm_id)] = vm_name
@@ -254,20 +286,24 @@ class BillingTracker:
         vm_id = str(vm_id)
         vm_name = self._vm_names.get(vm_id, f"VM-{vm_id}")
         
-        # Get records for this period
+        # Records that actually happened inside the period. These are what the
+        # report lists, because they are the real events.
         spec_records = [
             r for r in self._spec_changes.get(vm_id, [])
             if period_start <= r.timestamp <= period_end
         ]
-        state_records = [
-            r for r in self._state_changes.get(vm_id, [])
-            if period_start <= r.timestamp <= period_end
-        ]
-        
-        # Calculate CPU/RAM statistics
-        if spec_records:
-            cpu_values = [r.cpu_cores for r in spec_records]
-            ram_values = [r.ram_mb for r in spec_records]
+
+        # The series the period is *billed* from also carries in whatever was
+        # in effect at period_start. Without it, a VM that never changed spec
+        # during the period had no records at all and was billed zero.
+        effective_specs = self._specs_in_effect(vm_id, period_start, period_end)
+        state_records = self._states_in_effect(vm_id, period_start, period_end)
+
+        # Calculate CPU/RAM statistics over the specs actually in effect
+        if effective_specs:
+            spec_records_for_stats = effective_specs
+            cpu_values = [r.cpu_cores for r in spec_records_for_stats]
+            ram_values = [r.ram_mb for r in spec_records_for_stats]
             min_cpu = min(cpu_values)
             max_cpu = max(cpu_values)
             avg_cpu = sum(cpu_values) / len(cpu_values)
@@ -288,11 +324,11 @@ class BillingTracker:
         # Calculate cost (only charge for uptime)
         # Use time-weighted average for resources
         cpu_cost = self._calculate_resource_cost(
-            spec_records, 'cpu_cores', self.cost_per_cpu_hour, 
+            effective_specs, 'cpu_cores', self.cost_per_cpu_hour,
             period_start, period_end, state_records
         )
         ram_cost = self._calculate_resource_cost(
-            spec_records, 'ram_mb', self.cost_per_gb_ram_hour / 1024,  # Convert to per-MB
+            effective_specs, 'ram_mb', self.cost_per_gb_ram_hour / 1024,  # Convert to per-MB
             period_start, period_end, state_records
         )
         total_cost = cpu_cost + ram_cost
@@ -315,39 +351,90 @@ class BillingTracker:
             total_cost=total_cost
         )
     
-    def _calculate_uptime(self, state_records: List[StateChangeRecord],
-                          period_start: datetime, 
-                          period_end: datetime) -> tuple:
-        """Calculate total uptime and downtime hours for a period."""
+    def _specs_in_effect(self, vm_id: str, period_start: datetime,
+                         period_end: datetime) -> List[SpecChangeRecord]:
+        """Spec records covering the period, including the one carried in.
+
+        Spec changes are events, not samples: a VM that held one size for the
+        whole period produced no record inside it. Filtering strictly to the
+        period therefore billed such a VM zero. The last change before
+        `period_start` is replayed as an opening record at `period_start`.
+        """
+        records = sorted(self._spec_changes.get(vm_id, []), key=lambda r: r.timestamp)
+        inside = [r for r in records if period_start <= r.timestamp <= period_end]
+        before = [r for r in records if r.timestamp < period_start]
+
+        if not before:
+            return inside
+
+        carried = before[-1]
+        opening = SpecChangeRecord(
+            timestamp=period_start,
+            cpu_cores=carried.cpu_cores,
+            ram_mb=carried.ram_mb,
+        )
+        return [opening] + inside
+
+    def _states_in_effect(self, vm_id: str, period_start: datetime,
+                          period_end: datetime) -> List[StateChangeRecord]:
+        """State records for the period, including the state carried in.
+
+        Without the carry-in, a VM that started months ago and was stopped once
+        inside the period looked as though it had been down from `period_start`
+        until that stop.
+        """
+        records = sorted(self._state_changes.get(vm_id, []), key=lambda r: r.timestamp)
+        inside = [r for r in records if period_start <= r.timestamp <= period_end]
+        before = [r for r in records if r.timestamp < period_start]
+
+        if not before:
+            return inside
+
+        opening = StateChangeRecord(timestamp=period_start, state=before[-1].state)
+        return [opening] + inside
+
+    def _uptime_intervals(self, state_records: List[StateChangeRecord],
+                          period_start: datetime,
+                          period_end: datetime) -> List[tuple]:
+        """The (start, end) windows during which the VM was running."""
         if not state_records:
-            # Assume always up if no state records
-            total_hours = (period_end - period_start).total_seconds() / 3600
-            return total_hours, 0.0
-        
-        # Sort by timestamp
+            # Nothing recorded: assume the VM was up for the whole period.
+            return [(period_start, period_end)]
+
         sorted_records = sorted(state_records, key=lambda r: r.timestamp)
-        
-        uptime_seconds = 0
-        current_state = 'stopped'  # Assume stopped initially
+        intervals = []
+        current_state = 'stopped'
         last_timestamp = period_start
-        
+
         for record in sorted_records:
-            if current_state == 'started':
-                # Add time since last state change
-                uptime_seconds += (record.timestamp - last_timestamp).total_seconds()
-            
+            if current_state == 'started' and record.timestamp > last_timestamp:
+                intervals.append((last_timestamp, record.timestamp))
             current_state = record.state
             last_timestamp = record.timestamp
-        
-        # Account for time until period end
-        if current_state == 'started':
-            uptime_seconds += (period_end - last_timestamp).total_seconds()
-        
+
+        if current_state == 'started' and period_end > last_timestamp:
+            intervals.append((last_timestamp, period_end))
+
+        return intervals
+
+    def _calculate_uptime(self, state_records: List[StateChangeRecord],
+                          period_start: datetime,
+                          period_end: datetime) -> tuple:
+        """Calculate total uptime and downtime hours for a period."""
+        uptime_seconds = sum(
+            (end - start).total_seconds()
+            for start, end in self._uptime_intervals(state_records, period_start, period_end)
+        )
         total_seconds = (period_end - period_start).total_seconds()
-        uptime_hours = uptime_seconds / 3600
-        downtime_hours = (total_seconds - uptime_seconds) / 3600
-        
-        return uptime_hours, downtime_hours
+        return uptime_seconds / 3600, (total_seconds - uptime_seconds) / 3600
+
+    @staticmethod
+    def _overlap_seconds(a_start: datetime, a_end: datetime,
+                         b_start: datetime, b_end: datetime) -> float:
+        """Seconds shared by two intervals; zero when they do not overlap."""
+        start = max(a_start, b_start)
+        end = min(a_end, b_end)
+        return max(0.0, (end - start).total_seconds())
     
     def _calculate_resource_cost(self, spec_records: List[SpecChangeRecord],
                                   resource_key: str,
@@ -355,30 +442,37 @@ class BillingTracker:
                                   period_start: datetime,
                                   period_end: datetime,
                                   state_records: List[StateChangeRecord]) -> float:
-        """Calculate cost for a resource over the billing period."""
+        """Cost for one resource over the period, charged only while the VM was up.
+
+        `state_records` used to be accepted and ignored, so a VM powered off for
+        a week was still billed for that week at its last known spec.
+        """
         if not spec_records:
             return 0.0
-        
-        # Sort records by timestamp
+
+        up_intervals = self._uptime_intervals(state_records, period_start, period_end)
+        if not up_intervals:
+            return 0.0
+
         sorted_records = sorted(spec_records, key=lambda r: r.timestamp)
-        
+
         total_cost = 0.0
         last_record = sorted_records[0]
         last_timestamp = period_start
-        
-        for i, record in enumerate(sorted_records[1:], 1):
-            hours = (record.timestamp - last_timestamp).total_seconds() / 3600
-            resource_value = getattr(last_record, resource_key)
-            total_cost += resource_value * cost_per_unit_hour * hours
-            
+
+        def charge(spec, start, end):
+            billable = sum(
+                self._overlap_seconds(start, end, up_start, up_end)
+                for up_start, up_end in up_intervals
+            )
+            return getattr(spec, resource_key) * cost_per_unit_hour * (billable / 3600)
+
+        for record in sorted_records[1:]:
+            total_cost += charge(last_record, last_timestamp, record.timestamp)
             last_record = record
             last_timestamp = record.timestamp
-        
-        # Account for time until period end
-        hours = (period_end - last_timestamp).total_seconds() / 3600
-        resource_value = getattr(last_record, resource_key)
-        total_cost += resource_value * cost_per_unit_hour * hours
-        
+
+        total_cost += charge(last_record, last_timestamp, period_end)
         return total_cost
     
     def export_csv(self, report: BillingReport, 

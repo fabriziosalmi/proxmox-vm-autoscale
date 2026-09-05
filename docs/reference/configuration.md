@@ -114,7 +114,7 @@ proxmox_hosts:
 | `ssh_user` | string | yes | Needs privileges to run `qm set` — in practice `root` |
 | `ssh_password` | string | one of the two | **Takes precedence over `ssh_key` when both are set** |
 | `ssh_key` | path | one of the two | Ed25519, ECDSA, RSA and DSS all supported. The key must be **unencrypted** — there is no passphrase option |
-| `ssh_port` | int | **yes** | There is no default in practice: `host['ssh_port']` is indexed directly rather than via `.get()`, so omitting the key raises `KeyError` and every VM on that host fails. Set it to `22` explicitly |
+| `ssh_port` | int | no | Defaults to `22`. Earlier versions indexed this key directly, so omitting it raised `KeyError` and every VM on that host failed |
 
 ::: warning Two footguns in the shipped example
 The example config fills in **both** `ssh_password` and `ssh_key` with placeholders. Password wins, so a half-edited config authenticates with the literal string `your_password_here`. Also, `host2` in the example omits `ssh_port` — and the code reads that key unconditionally, so the host raises a `KeyError`. Set `ssh_port` on every host.
@@ -140,7 +140,29 @@ virtual_machines:
 | `scaling_enabled` | bool | no | Defaults to `false` — omitting it means the VM is never processed |
 | `cpu_scaling` | bool | no | Defaults to `false` |
 | `ram_scaling` | bool | no | Defaults to `false` |
-| `thresholds` | map | — | **Ignored.** Present in the example config but never read |
+| `thresholds` | map | no | Per-VM overrides of `scaling_thresholds`. Flat (`cpu_high`, `cpu_low`, `ram_high`, `ram_low`) or nested (`cpu: { high, low }`). Any bound you omit keeps the global value |
+
+## SSH host key verification
+
+```yaml
+ssh_host_key_policy: accept-new
+ssh_known_hosts: /etc/vm_autoscale/known_hosts
+```
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `ssh_host_key_policy` | string | `accept-new` | `accept-new`, `strict` or `auto` |
+| `ssh_known_hosts` | path | `/etc/vm_autoscale/known_hosts` | Created mode `600` in a `700` directory if absent |
+
+| Policy | Behaviour |
+|---|---|
+| `accept-new` | Trust a node the first time it is seen, record its key, and **refuse to connect if that key ever changes**. Equivalent to `ssh -o StrictHostKeyChecking=accept-new` |
+| `strict` | Only connect to nodes already listed in `ssh_known_hosts`. Pre-populate it with `ssh-keyscan` |
+| `auto` | Accept any key, every time, and record nothing. No protection whatsoever |
+
+::: warning `auto` was the old behaviour
+Before this was configurable the client used an auto-add policy with no known_hosts file loaded or saved, so every connection accepted whatever key it was offered. `auto` reproduces that and exists only as an escape hatch. A host key mismatch under the other two policies is fatal and is **not** retried — see the [hardening guide](/security/hardening#verify-ssh-host-keys).
+:::
 
 ## `host_limits`
 

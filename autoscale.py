@@ -7,7 +7,7 @@ import logging.config
 import time
 import re
 import sys
-from ssh_utils import SSHClient
+from ssh_utils import DEFAULT_KNOWN_HOSTS, SSHClient
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -163,6 +163,9 @@ class VMAutoscaler:
         # scaling cooldown survives between iterations of the main loop, and so
         # hotplug auto-configuration runs once per VM instead of every cycle.
         self._vm_managers: Dict[str, VMResourceManager] = {}
+        # Last observed running state per VM, so billing records transitions
+        # rather than one entry per poll.
+        self._vm_states: Dict[str, bool] = {}
         
         # Initialize billing tracker if enabled
         self.billing_enabled = self.config.get('billing', {}).get('enabled', False)
@@ -212,17 +215,21 @@ class VMAutoscaler:
         try:
             ssh_client = SSHClient(
                 host=host['host'],
-                port=host['ssh_port'],
+                port=host.get('ssh_port', 22),
                 user=host['ssh_user'],
                 password=host.get('ssh_password'),
-                key_path=host.get('ssh_key')
+                key_path=host.get('ssh_key'),
+                host_key_policy=self.config.get('ssh_host_key_policy', 'accept-new'),
+                known_hosts=self.config.get('ssh_known_hosts', DEFAULT_KNOWN_HOSTS),
             )
             ssh_client.connect()
 
             vm_manager = self._get_vm_manager(ssh_client, vm['vm_id'])
-            
+
             # First check if VM is running
-            if not vm_manager.is_vm_running():
+            running = vm_manager.is_vm_running()
+            self._record_vm_state(vm['vm_id'], running)
+            if not running:
                 self.logger.info(f"VM {vm['vm_id']} is not running. Skipping scaling.")
                 return
 
@@ -259,7 +266,10 @@ class VMAutoscaler:
                     )
                 else:
                     try:
-                        self._handle_cpu_scaling(vm_manager, vm['vm_id'], current_cpu_usage)
+                        self._handle_cpu_scaling(
+                            vm_manager, vm['vm_id'], current_cpu_usage,
+                            self._thresholds_for(vm, 'cpu'),
+                        )
                         self.logger.debug(f"CPU scaling completed for VM {vm['vm_id']}")
                     except Exception as e:
                         self.logger.error(f"CPU scaling failed for VM {vm['vm_id']}: {str(e)}")
@@ -273,7 +283,10 @@ class VMAutoscaler:
                     )
                 else:
                     try:
-                        self._handle_ram_scaling(vm_manager, vm['vm_id'], current_ram_usage)
+                        self._handle_ram_scaling(
+                            vm_manager, vm['vm_id'], current_ram_usage,
+                            self._thresholds_for(vm, 'ram'),
+                        )
                         self.logger.debug(f"RAM scaling completed for VM {vm['vm_id']}")
                     except Exception as e:
                         self.logger.error(f"RAM scaling failed for VM {vm['vm_id']}: {str(e)}")
@@ -307,17 +320,66 @@ class VMAutoscaler:
             manager.ensure_hotplug_configured()
         return manager
 
+    def _thresholds_for(self, vm: Dict[str, Any], resource: str) -> Dict[str, float]:
+        """Resolve the high/low thresholds for one VM and one resource.
+
+        Falls back to the global `scaling_thresholds` section. A VM may override
+        either or both bounds, in the flat shape shown in `config.yaml`:
+
+            thresholds:
+              cpu_high: 90
+              cpu_low: 30
+
+        or in the same nested shape as the global section:
+
+            thresholds:
+              cpu: { high: 90, low: 30 }
+
+        Both were previously ignored entirely - the block existed in the example
+        config but nothing read it.
+        """
+        thresholds = dict(self.config['scaling_thresholds'][resource])
+
+        overrides = vm.get('thresholds') or {}
+        if not isinstance(overrides, dict):
+            self.logger.warning(
+                f"VM {vm.get('vm_id')}: 'thresholds' is not a mapping; ignoring it."
+            )
+            return thresholds
+
+        nested = overrides.get(resource)
+        if isinstance(nested, dict):
+            for bound in ('high', 'low'):
+                if nested.get(bound) is not None:
+                    thresholds[bound] = nested[bound]
+
+        for bound in ('high', 'low'):
+            value = overrides.get(f"{resource}_{bound}")
+            if value is not None:
+                thresholds[bound] = value
+
+        if thresholds['low'] > thresholds['high']:
+            self.logger.warning(
+                f"VM {vm.get('vm_id')}: {resource} low threshold "
+                f"({thresholds['low']}) is above high ({thresholds['high']}); "
+                "using the global values instead."
+            )
+            return dict(self.config['scaling_thresholds'][resource])
+
+        return thresholds
+
     @staticmethod
     def _format_usage(value: Optional[float]) -> str:
         """Render a usage figure for the log, distinguishing unknown from zero."""
         return "unavailable" if value is None else f"{value:.2f}%"
 
     def _handle_cpu_scaling(self, vm_manager: VMResourceManager, vm_id: int,
-                            cpu_usage: Optional[float]) -> None:
+                            cpu_usage: Optional[float],
+                            thresholds: Optional[Dict[str, float]] = None) -> None:
         """Handle CPU scaling decisions. A None reading is never acted on."""
         if cpu_usage is None:
             return
-        thresholds = self.config['scaling_thresholds']['cpu']
+        thresholds = thresholds or self.config['scaling_thresholds']['cpu']
         if cpu_usage > thresholds['high']:
             if vm_manager.scale_cpu('up'):
                 self.notification_manager.send_notification(
@@ -338,11 +400,12 @@ class VMAutoscaler:
                     self._record_billing_spec(vm_manager, vm_id)
 
     def _handle_ram_scaling(self, vm_manager: VMResourceManager, vm_id: int,
-                            ram_usage: Optional[float]) -> None:
+                            ram_usage: Optional[float],
+                            thresholds: Optional[Dict[str, float]] = None) -> None:
         """Handle RAM scaling decisions. A None reading is never acted on."""
         if ram_usage is None:
             return
-        thresholds = self.config['scaling_thresholds']['ram']
+        thresholds = thresholds or self.config['scaling_thresholds']['ram']
         if ram_usage > thresholds['high']:
             if vm_manager.scale_ram('up'):
                 self.notification_manager.send_notification(
@@ -361,6 +424,65 @@ class VMAutoscaler:
                 # Record for billing
                 if self.billing_tracker:
                     self._record_billing_spec(vm_manager, vm_id)
+
+    def _record_vm_state(self, vm_id: Any, running: bool) -> None:
+        """Record a start/stop transition for billing.
+
+        Only transitions are written, so the state history stays proportional
+        to how often VMs actually change state rather than to the poll rate.
+        Nothing called this before, which is why every billing report showed
+        100% uptime.
+        """
+        if not self.billing_tracker:
+            return
+
+        key = str(vm_id)
+        if self._vm_states.get(key) == running:
+            return
+        self._vm_states[key] = running
+
+        try:
+            self.billing_tracker.record_vm_state_change(
+                key, 'started' if running else 'stopped'
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to record billing state for VM {vm_id}: {e}")
+
+    def _maybe_generate_billing_reports(self) -> None:
+        """Emit period reports once a full billing period has elapsed.
+
+        `generate_period_report` existed but nothing called it, so enabling
+        billing produced a growing state file and no CSV, no webhook and no
+        report of any kind.
+        """
+        if not self.billing_tracker:
+            return
+
+        try:
+            if not self.billing_tracker.is_period_due():
+                return
+        except Exception as e:
+            self.logger.error(f"Failed to check the billing period: {e}")
+            return
+
+        self.logger.info("Billing period elapsed; generating reports.")
+        generated = 0
+        for vm in self.config.get('virtual_machines', []):
+            try:
+                report = self.billing_tracker.generate_period_report(str(vm['vm_id']))
+                if report:
+                    generated += 1
+                    self.logger.info(
+                        f"Billing: VM {report.vm_id} cost {report.total_cost:.4f} "
+                        f"over {report.total_uptime_hours:.2f} uptime hours"
+                    )
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to generate a billing report for VM {vm.get('vm_id')}: {e}"
+                )
+
+        self.billing_tracker.set_last_report_time()
+        self.logger.info(f"Billing: generated {generated} report(s).")
 
     def _record_billing_spec(self, vm_manager: VMResourceManager, vm_id: int) -> None:
         """Record current VM spec for billing after a scaling operation."""
@@ -384,7 +506,9 @@ class VMAutoscaler:
                     for vm in self.config['virtual_machines']:
                         if vm['proxmox_host'] == host['name'] and vm.get('scaling_enabled', False):
                             self.process_vm(host, vm)
-                
+
+                self._maybe_generate_billing_reports()
+
                 check_interval = self.config.get('check_interval', 300)  # Default to 5 minutes
                 time.sleep(check_interval)
             

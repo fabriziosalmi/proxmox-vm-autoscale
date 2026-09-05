@@ -61,7 +61,7 @@ Not through configuration. Step sizes are fixed at 1 core and 512 MB in `vm_mana
 
 ### Can I set different thresholds per VM?
 
-No. `config.yaml` shows a `thresholds:` block inside each VM entry, but the code reads only the global `scaling_thresholds`. The per-VM block is inert. See [known limitations](/reference/limitations#per-vm-thresholds-are-ignored).
+Yes. A `thresholds:` block inside a VM entry overrides the global `scaling_thresholds` for that VM, in either the flat shape (`cpu_high`, `cpu_low`, `ram_high`, `ram_low`) or the nested one (`cpu: { high, low }`). Override one bound or all four — anything you leave out keeps the global value. See the [configuration reference](/reference/configuration#virtual-machines).
 
 ### What happens if the service is restarted mid-cooldown?
 
@@ -113,7 +113,7 @@ No. If the service is running and a threshold is crossed, the command is execute
 
 ### Is it safe for production?
 
-It is a small single-process service with 138 unit tests, run by its author and by others across 302 stars and 23 forks. It is also alpha-versioned software that holds root credentials, has no dry-run, and has known defects documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
+It is a small single-process service with 170 unit tests, run by its author and by others across 302 stars and 23 forks. It is also alpha-versioned software that holds root credentials, has no dry-run, and has known defects documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
 
 ## Project
 

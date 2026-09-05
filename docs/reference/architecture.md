@@ -107,7 +107,7 @@ One method. Runs `pvesh get /nodes/$(hostname)/status --output-format json`, par
 
 ### `billing_tracker.py`
 
-Three dataclasses and a tracker. State is a single JSON file rewritten in full on every record. Reporting — period calculation, CSV export, webhooks — is complete API surface that the service does not currently call.
+Three dataclasses and a tracker. State is a single JSON file rewritten in full on every record. The main loop asks it once per cycle whether a billing period has elapsed and, when one has, generates a costed CSV per VM and fires any configured webhook.
 
 ## Threading and concurrency
 
@@ -156,7 +156,7 @@ Realistic places to add behaviour without restructuring:
 
 ## Tests
 
-`tests/` holds 138 unit tests across seven files, run with `pytest`. SSH is mocked throughout, so there is no integration test against a real Proxmox node — but metrics now come from `pvesh --output-format json`, and the tests exercise that parsing against realistic payloads rather than a scraped table.
+`tests/` holds 170 unit tests across eight files, run with `pytest`. SSH is mocked throughout, so there is no integration test against a real Proxmox node — but metrics now come from `pvesh --output-format json`, and the tests exercise that parsing against realistic payloads rather than a scraped table.
 
 ```bash
 python3 -m pytest tests/ -q

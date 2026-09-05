@@ -41,6 +41,8 @@ virtual_machines:
     scaling_enabled: true
     cpu_scaling: true    # Enable/disable CPU scaling
     ram_scaling: true    # Enable/disable RAM scaling
+    # Optional per-VM override of scaling_thresholds. Omit any bound to keep
+    # the global value. The nested shape (cpu: {high: 80, low: 20}) also works.
     thresholds:
       cpu_high: 80
       cpu_low: 20
@@ -57,6 +59,14 @@ virtual_machines:
       cpu_low: 20
       ram_high: 80
       ram_low: 20
+
+# SSH host key verification
+#   accept-new  trust a host the first time it is seen, record its key, and
+#               refuse to connect if that key ever changes (default)
+#   strict      only connect to hosts already listed in ssh_known_hosts
+#   auto        accept any key every time and never record it (no protection)
+ssh_host_key_policy: accept-new
+ssh_known_hosts: /etc/vm_autoscale/known_hosts
 
 # Logging configuration
 logging:

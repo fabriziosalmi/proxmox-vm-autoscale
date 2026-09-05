@@ -39,9 +39,11 @@ After the fix, `config.yaml` is mode `600` and root-owned. What remains readable
 
 ### Network attacker between the service and a node
 
-The SSH client uses an **auto-add host key policy**: any host key presented is trusted, and no pinning is performed on subsequent connections. An attacker able to intercept or redirect the connection can present their own key and receive the root password or complete a key-based handshake against their own server.
+Host keys are now verified. Under the default `accept-new` policy the service records a node's key on first contact and **refuses to connect if it later changes**, so an attacker who interposes after that first connection is blocked and logged rather than handed root credentials.
 
-This is the most serious design-level exposure. It is inherent to the current implementation, not a misconfiguration. Mitigate at the network layer — see [hardening](/security/hardening#pin-ssh-host-keys).
+What remains is the first connection itself: trust-on-first-use means an attacker already in position at that moment is recorded as legitimate. Set `ssh_host_key_policy: strict` and pre-populate `ssh_known_hosts` with `ssh-keyscan` to close that too — see [hardening](/security/hardening#verify-ssh-host-keys).
+
+Before this was configurable the client accepted any key on every connection and remembered nothing, which offered no protection at all. `ssh_host_key_policy: auto` reproduces that behaviour if you need it.
 
 ### Root on the autoscaler host
 
@@ -69,7 +71,7 @@ These are properties of how the service works. They are not going to be fixed by
 |---|---|---|
 | **Root SSH required** | Every action is a `qm` command | Not today; there is no least-privilege mode |
 | **Credentials in plain text** | No secrets backend | File permissions and disk encryption only |
-| **Auto-add host keys** | Paramiko `AutoAddPolicy` | Network segmentation, dedicated management VLAN |
+| **First-use host key trust** | `accept-new` records a key on first contact | `strict` plus a pre-populated `ssh_known_hosts` |
 | **Service runs unconfined as root** | Shipped unit sets `User=root` with no sandboxing | Yes — [systemd drop-in](/security/hardening#confine-the-systemd-unit) |
 | **VMIDs interpolated into shell strings** | No validation on `vm_id` | Config is admin-controlled, so not remotely exploitable |
 | **No audit trail beyond the log** | No structured events | Ship the log somewhere append-only |
