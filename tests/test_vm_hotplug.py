@@ -231,7 +231,6 @@ class TestCPUScalingWithHotplug(unittest.TestCase):
         )
         
         manager = VMResourceManager(self.ssh_client, "101", self.config)
-        manager.last_scale_time = 0  # Reset cooldown
         manager._scale_cpu_up(current_cores=4, current_vcpus=2)
         
         # Should set vcpus to 3, not increase cores
@@ -252,7 +251,6 @@ class TestCPUScalingWithHotplug(unittest.TestCase):
         )
         
         manager = VMResourceManager(self.ssh_client, "101", self.config)
-        manager.last_scale_time = 0
         manager._scale_cpu_down(current_cores=4, current_vcpus=4)
         
         # Should reduce vcpus first
@@ -275,7 +273,6 @@ class TestCPUScalingWithHotplug(unittest.TestCase):
             mock_logger.return_value = mock_log
             
             manager = VMResourceManager(self.ssh_client, "101", self.config)
-            manager.last_scale_time = 0
             manager._scale_cpu_up(current_cores=2, current_vcpus=2)
             
             # Check that warning was logged

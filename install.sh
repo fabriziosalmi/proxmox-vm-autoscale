@@ -22,12 +22,14 @@ fi
 if [ ! -d "$BACKUP_DIR" ]; then
     echo "Creating backup directory..."
     mkdir -p "$BACKUP_DIR" || { echo "ERROR: Failed to create backup directory"; exit 1; }
+    chmod 700 "$BACKUP_DIR" || { echo "ERROR: Failed to set permissions on $BACKUP_DIR"; exit 1; }
 fi
 
 # Backup existing config.yaml if it exists
 if [ -f "$CONFIG_FILE" ]; then
     echo "Backing up existing config.yaml to $BACKUP_FILE..."
     cp "$CONFIG_FILE" "$BACKUP_FILE" || { echo "ERROR: Failed to backup config.yaml"; exit 1; }
+    chmod 600 "$BACKUP_FILE" || { echo "ERROR: Failed to restrict permissions on $BACKUP_FILE"; exit 1; }
 fi
 
 # Install necessary dependencies
@@ -62,7 +64,18 @@ fi
 # Set permissions
 echo "Setting permissions for installation directory..."
 chmod -R 755 "$INSTALL_DIR" || { echo "ERROR: Failed to set permissions on $INSTALL_DIR"; exit 1; }
-chmod -R 755 "$BACKUP_DIR" || { echo "ERROR: Failed to set permissions on $BACKUP_DIR"; exit 1; }
+
+# config.yaml holds SSH and SMTP credentials in plain text: it must never be
+# world-readable, so it is locked down after the recursive chmod above.
+chmod 700 "$BACKUP_DIR" || { echo "ERROR: Failed to set permissions on $BACKUP_DIR"; exit 1; }
+if [ -f "$CONFIG_FILE" ]; then
+    chown root:root "$CONFIG_FILE" || { echo "ERROR: Failed to set owner on $CONFIG_FILE"; exit 1; }
+    chmod 600 "$CONFIG_FILE" || { echo "ERROR: Failed to restrict permissions on $CONFIG_FILE"; exit 1; }
+fi
+if [ -f "$BACKUP_FILE" ]; then
+    chown root:root "$BACKUP_FILE" || { echo "ERROR: Failed to set owner on $BACKUP_FILE"; exit 1; }
+    chmod 600 "$BACKUP_FILE" || { echo "ERROR: Failed to restrict permissions on $BACKUP_FILE"; exit 1; }
+fi
 
 # Create the systemd service file
 echo "Creating the systemd service file..."
@@ -97,3 +110,4 @@ echo "Installation complete. The service is enabled but not started."
 echo "To start the service, use: sudo systemctl start $SERVICE_FILE"
 echo "Logs can be monitored using: journalctl -u $SERVICE_FILE -f"
 echo "Config backup location: $BACKUP_FILE"
+echo "NOTE: $CONFIG_FILE is mode 600 (root only) because it stores SSH and SMTP credentials."
