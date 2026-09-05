@@ -35,9 +35,9 @@ The script must run as root. It will:
 2. `apt-get install` `python3`, `curl`, `bash`, `git`, `python3-paramiko`, `python3-yaml`, `python3-requests`, `python3-cryptography`.
 3. **Delete** `/usr/local/bin/vm_autoscale/` if it exists, then clone the repository into it.
 4. Restore your backed-up `config.yaml` over the shipped example.
-5. `pip3 install -r requirements.txt`.
+5. `pip3 install -r requirements.txt` — best effort; see [below](#if-pip3-install-fails).
 6. Set permissions — including locking `config.yaml` to mode `600`, because it holds your SSH password.
-7. Write and `systemctl enable` the unit — **without starting it**.
+7. Install `vm_autoscale.service` from the repository and `systemctl enable` it — **without starting it**.
 
 ::: warning Step 3 removes the install directory
 Anything you put inside `/usr/local/bin/vm_autoscale/` that is not `config.yaml` — a custom webhook script, a patched module — is deleted on every reinstall. Keep such files elsewhere and reference them by absolute path.
@@ -59,7 +59,9 @@ On Proxmox VE 8 and other Debian 12+ systems, pip refuses to install into the sy
 error: externally-managed-environment
 ```
 
-The `apt-get` step above already installed `paramiko`, `PyYAML` and `requests` as system packages, so the service will run regardless — the pip step is redundant there. If you would rather have an isolated environment, use the [virtualenv variant](#running-in-a-virtualenv) below.
+This is expected and **not fatal**: the `apt-get` step above already installed `paramiko`, `PyYAML` and `requests` as system packages, so the pip step is redundant there. The installer prints a notice and carries on.
+
+If you would rather have an isolated environment, use the [virtualenv variant](#running-in-a-virtualenv) below.
 
 ## Option B — manual install
 
@@ -76,14 +78,16 @@ sudo chown root:root config.yaml
 sudo chmod 600 config.yaml
 
 # Install the unit shipped in the repository
-sudo cp vm_autoscale.service /etc/systemd/system/
+sudo install -m 644 -o root -g root vm_autoscale.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable vm_autoscale.service
 ```
 
-::: tip The repository unit is the better one
-`vm_autoscale.service` in the repository sets `RestartSec=10` and a `Documentation=` link; the unit the installer generates inline does not. On a service configured to `Restart=always`, the missing `RestartSec` means a crash-looping process restarts as fast as systemd allows. Prefer the repository file.
+::: info One unit, one source
+This is the same file the installer script installs. Earlier versions of the installer generated a second unit inline, which had drifted from the tracked one — it was missing `RestartSec`, so a crash-looping service restarted as fast as systemd allowed. There is now a single definition.
 :::
+
+The unit hardcodes `/usr/bin/python3` and `/usr/local/bin/vm_autoscale`. If you install elsewhere, edit it to match.
 
 ### Running in a virtualenv
 

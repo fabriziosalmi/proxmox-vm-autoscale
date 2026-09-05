@@ -1,122 +1,106 @@
 # Security Policy
 
-## Supported Versions
+## Reporting a vulnerability
 
-This project is currently in active development. We recommend using the latest version from the `main` branch.
+**Do not open a public GitHub issue.** This project holds credentials for `root`
+on hypervisors; a public report puts every deployment at risk before a fix
+exists.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| Latest (main) | :white_check_mark: |
-| < 1.0   | :warning: Alpha - Use with caution |
+Email **fabrizio.salmi@gmail.com** with:
 
-## Reporting a Vulnerability
+- What the issue is and which component it affects
+- Steps to reproduce, a proof of concept, or the code path
+- What an attacker gains, and from what starting position
+- The release tag or commit hash
+- A suggested fix, if you have one
+- How you would like to be credited, or that you prefer to remain anonymous
 
-We take security vulnerabilities seriously. If you discover a security issue, please follow these steps:
+### What to expect
 
-### Private Disclosure Process
+| Stage | Timeline |
+|---|---|
+| Acknowledgement | Within 48 hours |
+| Assessment and a plan | Within 7 days |
+| Fix | Depends on severity and complexity |
+| Advisory and release | Published together with the fix |
 
-1. **DO NOT** open a public GitHub issue for security vulnerabilities
-2. Email security details to: **fabrizio.salmi@gmail.com**
-3. Include:
-   - Description of the vulnerability
-   - Steps to reproduce the issue
-   - Potential impact assessment
-   - Suggested fix (if available)
+You will be kept informed, credited in the advisory unless you prefer otherwise,
+and told when it is safe to publish.
 
-### Response Timeline
+## Supported versions
 
-- **Initial Response**: Within 48 hours of report
-- **Status Update**: Within 7 days with assessment and timeline
-- **Resolution**: Depends on severity and complexity
+| Version | Supported |
+|---|---|
+| `main` | ✅ |
+| Latest release | ✅ |
+| Older tags | ⚠️ Upgrade — this project is pre-1.0 in maturity |
 
-### Recognition
+> Release tags are not in chronological order: `v1.2.0` was published before
+> `v0.1.1`. Go by the [releases page](https://github.com/fabriziosalmi/proxmox-vm-autoscale/releases),
+> not by the highest number.
 
-We appreciate security researchers and will:
-- Acknowledge your contribution (if desired)
-- Keep you informed of the fix progress
-- Credit you in the security advisory (unless you prefer to remain anonymous)
+## Scope
 
-## Security Best Practices
+**In scope** — everything in this repository: the Python modules, `install.sh`,
+the systemd unit, the shipped configuration, and the documentation where it
+recommends something unsafe.
 
-### For Users
+**Out of scope**
 
-When deploying Proxmox VM Autoscale:
+- Vulnerabilities in Proxmox VE itself → [Proxmox security](https://pve.proxmox.com/wiki/Security)
+- Vulnerabilities in `paramiko`, `PyYAML` or `requests` → report upstream, though
+  do tell us if this project's usage makes one exploitable
+- Anything requiring root on the host running the service — root there is total
+  compromise by design, since the credentials are readable and the code is
+  modifiable
+- The already-known weaknesses below. A **new exploitation path** for one of them
+  is very much in scope
 
-1. **Credentials Management**:
-   - Store `config.yaml` with restricted permissions: `chmod 600 /usr/local/bin/vm_autoscale/config.yaml`
-   - Use SSH keys instead of passwords when possible
-   - Rotate credentials regularly
+## Known weaknesses
 
-2. **SSH Security**:
-   - Use strong SSH keys (RSA 4096-bit or Ed25519)
-   - Restrict SSH access to specific IP addresses
-   - Keep SSH key files with permissions 600: `chmod 600 /path/to/ssh_key`
+These are documented, not hidden. Please check them before reporting.
 
-3. **System Security**:
-   - Run the service with minimal required privileges
-   - Keep Python and dependencies updated
-   - Monitor logs for suspicious activity
+| Weakness | Status |
+|---|---|
+| SSH host keys are auto-accepted, with no pinning | Design-level; mitigate by network segmentation |
+| Credentials stored in plain text in `config.yaml` | No secrets backend; mitigate with mode `600` and disk encryption |
+| The service requires and runs as `root` | Every action is a `qm` command; no least-privilege mode exists |
+| `install.sh` is fetched over HTTPS and run unverified | Read it first, or install manually |
+| VMIDs are interpolated into shell command strings | Config is administrator-controlled, so not remotely exploitable |
+| Only RSA SSH keys load | Ed25519 and ECDSA keys fail to load |
 
-4. **Network Security**:
-   - Use firewall rules to restrict access to Proxmox hosts
-   - Consider using a VPN or bastion host for SSH connections
-   - Enable SSH rate limiting to prevent brute-force attacks
+Full analysis, including attacker positions and what is *not* a risk:
+**[Threat model](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/)**.
 
-5. **Configuration Security**:
-   - Never commit `config.yaml` with real credentials to version control
-   - Use `.gitignore` to exclude sensitive configuration files
-   - Backup configuration files securely
+## Hardening
 
-### For Developers
+The essentials:
 
-When contributing:
+1. `config.yaml` must be root-owned and mode `600` — verify after every install
+2. Use a dedicated SSH key, not a reused admin key, and remove `ssh_password`
+3. Restrict the key in `authorized_keys` with `from="<autoscaler address>"`
+4. Keep management SSH on a segmented network
+5. Apply a systemd hardening drop-in
+6. Rotate credentials if the config was ever readable by a non-root user
 
-1. **Code Security**:
-   - Validate and sanitize all user inputs
-   - Use parameterized commands to prevent command injection
-   - Handle exceptions properly to avoid information disclosure
+Step by step, with the drop-in and the firewall rules:
+**[Hardening guide](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/hardening.html)**.
 
-2. **Dependency Security**:
-   - Keep dependencies updated to latest secure versions
-   - Review dependencies for known vulnerabilities
-   - Use `pip-audit` or similar tools to check for CVEs
+## Dependencies
 
-3. **Testing**:
-   - Test with invalid/malicious inputs
-   - Verify error messages don't leak sensitive information
-   - Test authentication and authorization thoroughly
+Three direct dependencies: `paramiko`, `PyYAML`, `requests`. Dependabot watches
+pip, npm and GitHub Actions weekly.
 
-## Known Security Considerations
+```bash
+pip3 install pip-audit && pip-audit -r requirements.txt
+```
 
-### Current Limitations
+## Security update process
 
-1. **SSH Credentials in Config**: 
-   - Credentials are stored in plain text in `config.yaml`
-   - **Mitigation**: Use file permissions (600) and SSH keys instead of passwords
+1. The fix is developed and tested privately
+2. A GitHub security advisory is published
+3. A release is tagged with the fix
+4. Release notes describe the issue and the action required
 
-2. **Logging Sensitive Data**:
-   - Be careful not to log sensitive information
-   - **Mitigation**: Review logs regularly and sanitize before sharing
-
-3. **Privileged Access**:
-   - Service requires root access to Proxmox hosts
-   - **Mitigation**: Use dedicated service accounts with minimal required permissions where possible
-
-## Security Update Process
-
-When a security issue is identified:
-
-1. A fix will be developed and tested privately
-2. A security advisory will be published on GitHub
-3. A new release will be tagged with the fix
-4. Users will be notified through GitHub release notes
-
-## Additional Resources
-
-- [Proxmox VE Security](https://pve.proxmox.com/wiki/Security)
-- [SSH Security Best Practices](https://www.ssh.com/academy/ssh/security)
-- [Python Security Guidelines](https://python.readthedocs.io/en/latest/library/security_warnings.html)
-
----
-
-**Note**: This is an alpha version project. Use in production environments should be done with appropriate testing and security measures in place.
+A machine-readable [`security.txt`](https://fabriziosalmi.github.io/proxmox-vm-autoscale/.well-known/security.txt)
+is published alongside the documentation, per RFC 9116.

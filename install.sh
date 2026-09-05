@@ -10,7 +10,8 @@ SERVICE_FILE="vm_autoscale.service"
 CONFIG_FILE="$INSTALL_DIR/config.yaml"
 BACKUP_FILE="$BACKUP_DIR/config.yaml.backup"  # Updated backup location
 REQUIREMENTS_FILE="$INSTALL_DIR/requirements.txt"
-PYTHON_CMD="/usr/bin/python3"
+# Note: vm_autoscale.service hardcodes /usr/bin/python3 and the paths above.
+# If you change INSTALL_DIR, edit the unit file to match.
 
 # Ensure the script is run as root
 if [ "$EUID" -ne 0 ]; then
@@ -53,10 +54,19 @@ if [ -f "$BACKUP_FILE" ]; then
     cp "$BACKUP_FILE" "$CONFIG_FILE" || { echo "ERROR: Failed to restore config.yaml from backup"; exit 1; }
 fi
 
-# Install Python dependencies
+# Install Python dependencies.
+# The apt step above already provides paramiko, PyYAML and requests as system
+# packages, so this is a best-effort top-up. On Debian 12+ and Proxmox VE 8 pip
+# refuses to touch the system interpreter (PEP 668,
+# "externally-managed-environment"); treating that as fatal would abort an
+# otherwise complete installation.
 if [ -f "$REQUIREMENTS_FILE" ]; then
     echo "Installing Python dependencies..."
-    pip3 install -r "$REQUIREMENTS_FILE" || { echo "ERROR: Failed to install Python dependencies"; exit 1; }
+    if ! pip3 install -r "$REQUIREMENTS_FILE"; then
+        echo "NOTICE: pip could not install into the system interpreter."
+        echo "        This is expected on Proxmox VE 8 / Debian 12+ (PEP 668)."
+        echo "        Continuing: the required packages were installed via apt."
+    fi
 else
     echo "WARNING: Requirements file not found. Skipping Python dependency installation."
 fi
@@ -77,28 +87,19 @@ if [ -f "$BACKUP_FILE" ]; then
     chmod 600 "$BACKUP_FILE" || { echo "ERROR: Failed to restrict permissions on $BACKUP_FILE"; exit 1; }
 fi
 
-# Create the systemd service file
-echo "Creating the systemd service file..."
-cat <<EOF > /etc/systemd/system/$SERVICE_FILE
-[Unit]
-Description=Proxmox VM Autoscale Service
-After=network.target
-
-[Service]
-ExecStart=$PYTHON_CMD $INSTALL_DIR/autoscale.py
-WorkingDirectory=$INSTALL_DIR
-Restart=always
-User=root
-Environment=PYTHONUNBUFFERED=1
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to create systemd service file at /etc/systemd/system/$SERVICE_FILE"
+# Install the systemd unit shipped in the repository.
+# It is deliberately the same file that is version-controlled and documented,
+# rather than a copy generated here: the two had drifted, and the generated one
+# was missing RestartSec, so a crash-looping service restarted as fast as
+# systemd allowed.
+echo "Installing the systemd service file..."
+if [ ! -f "$INSTALL_DIR/$SERVICE_FILE" ]; then
+    echo "ERROR: $SERVICE_FILE not found in $INSTALL_DIR"
     exit 1
 fi
+
+install -m 644 -o root -g root "$INSTALL_DIR/$SERVICE_FILE" "/etc/systemd/system/$SERVICE_FILE" \
+    || { echo "ERROR: Failed to install systemd service file at /etc/systemd/system/$SERVICE_FILE"; exit 1; }
 
 # Reload systemd, enable the service, and ensure it's not started
 echo "Reloading systemd and enabling the service..."

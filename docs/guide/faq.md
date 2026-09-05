@@ -113,7 +113,7 @@ No. If the service is running and a threshold is crossed, the command is execute
 
 ### Is it safe for production?
 
-It is a small single-process service with 114 unit tests, run by its author and by others across 302 stars and 23 forks. It is also alpha-versioned software that holds root credentials, has no dry-run, and has known defects documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
+It is a small single-process service with 118 unit tests, run by its author and by others across 302 stars and 23 forks. It is also alpha-versioned software that holds root credentials, has no dry-run, and has known defects documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
 
 ## Project
 
