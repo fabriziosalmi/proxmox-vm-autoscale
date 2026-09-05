@@ -9,7 +9,7 @@ hero:
   text: Right-size your VMs while they run
   tagline: A small systemd service that watches CPU and RAM on your Proxmox VE guests and adjusts cores and memory through qm over SSH — with hotplug, host safety limits and notifications.
   image:
-    src: /favicon.svg
+    src: /logo-mark.svg
     alt: Proxmox VM Autoscale
   actions:
     - theme: brand
