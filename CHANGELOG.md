@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-05
+
+> **Upgrade note.** A VM whose usage cannot be read now **stops scaling**
+> instead of being treated as idle and walked down to its minimum. If something
+> in your fleet was quietly shrinking, it will now hold its size and log
+> `unavailable` — that is the fix working, but a VM with a persistent metric
+> problem will no longer scale at all. Alert on the warning.
+
 ### Fixed
 - **Guest metrics no longer come from scraping a table.** Usage was read with
   `pvesh get /cluster/resources | grep 'qemu/<vmid>' | awk -F '│' …`, which
@@ -199,7 +207,8 @@ Recorded here because the original release notes overstate what shipped:
 - Host resource safety checks
 - Scaling cooldown periods
 
-[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v0.1.1...v1.3.0
 [0.1.1]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.2.0...v0.1.1
 [1.2.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v0.1.0...v1.2.0
