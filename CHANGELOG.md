@@ -25,7 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zero; the effective interval was `check_interval`, not `scale_cooldown`.
   Managers are now cached per VM and rebound to each cycle's SSH connection.
   As a side effect, hotplug auto-configuration runs once per VM instead of
-  issuing two extra `qm config` calls per VM per cycle.
+  issuing two extra `qm config` calls per VM per cycle — and is retried on the
+  next cycle if it failed, so a transient SSH error during the first cycle no
+  longer leaves a VM permanently non-live-scalable.
+- `can_scale()` and `_mark_scaled()` reject unknown resource names instead of
+  silently treating them as never rate-limited.
 
 ### Security
 - **`install.sh` no longer leaves `config.yaml` world-readable.** A recursive

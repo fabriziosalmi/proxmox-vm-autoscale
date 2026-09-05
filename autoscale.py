@@ -279,6 +279,9 @@ class VMAutoscaler:
             self._vm_managers[key] = manager
         else:
             manager.ssh_client = ssh_client
+            # Retry hotplug auto-configuration if the first attempt failed;
+            # this is a no-op once it has succeeded.
+            manager.ensure_hotplug_configured()
         return manager
 
     def _handle_cpu_scaling(self, vm_manager: VMResourceManager, vm_id: int, cpu_usage: float) -> None:

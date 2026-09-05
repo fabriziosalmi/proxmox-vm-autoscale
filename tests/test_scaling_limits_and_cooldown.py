@@ -195,6 +195,23 @@ class TestIndependentCooldowns(unittest.TestCase):
         self.assertTrue(mgr.scale_cpu("up"))
         self.assertTrue(mgr.scale_cpu("up"))
 
+    def test_unknown_resource_is_rejected(self):
+        """A typo must fail loudly rather than silently skip rate limiting."""
+        mgr = self._mgr()
+        with self.assertRaises(ValueError):
+            mgr.can_scale("mem")
+        with self.assertRaises(ValueError):
+            mgr._mark_scaled("mem")
+
+    def test_marking_one_resource_never_affects_the_other(self):
+        """There is no global timer left that could re-couple the two."""
+        mgr = self._mgr()
+        mgr._mark_scaled("cpu")
+        self.assertFalse(mgr.can_scale("cpu"))
+        self.assertTrue(mgr.can_scale("ram"))
+        mgr._mark_scaled("ram")
+        self.assertFalse(mgr.can_scale("ram"))
+
 
 # ---------------------------------------------------------------------------
 # 3. Managers survive across polling cycles
@@ -259,11 +276,50 @@ class TestVMManagerReuse(unittest.TestCase):
         ssh = MagicMock()
         ssh.execute_command.return_value = ("cores: 4\nmemory: 8192", "", 0)
 
-        a._get_vm_manager(ssh, "101")
+        manager = a._get_vm_manager(ssh, "101")
         calls_after_first = len(ssh.execute_command.call_args_list)
         a._get_vm_manager(ssh, "101")
 
+        self.assertTrue(manager._hotplug_configured)
         self.assertEqual(len(ssh.execute_command.call_args_list), calls_after_first)
+
+    def test_hotplug_autoconfiguration_is_retried_after_a_transient_failure(self):
+        """Caching managers must not turn one bad cycle into a permanent one.
+
+        Auto-configuration swallows its own exceptions, so without an explicit
+        retry a VM whose first cycle failed would never become live-scalable
+        again for the lifetime of the process.
+        """
+        a = self._autoscaler({"auto_configure_hotplug": True, "scale_cooldown": 0})
+        ssh = MagicMock()
+        state = {"failing": True}
+
+        def respond(cmd, *args, **kwargs):
+            if state["failing"]:
+                raise OSError("SSH transport closed")
+            return ("cores: 4\nmemory: 8192", "", 0)
+
+        ssh.execute_command.side_effect = respond
+
+        manager = a._get_vm_manager(ssh, "101")
+        self.assertFalse(manager._hotplug_configured)
+
+        state["failing"] = False
+        a._get_vm_manager(ssh, "101")          # next polling cycle
+
+        self.assertTrue(manager._hotplug_configured)
+        issued = [c.args[0] for c in ssh.execute_command.call_args_list]
+        self.assertTrue(any("qm set" in cmd and "-hotplug" in cmd for cmd in issued))
+
+    def test_disabled_autoconfiguration_is_never_retried(self):
+        a = self._autoscaler({"auto_configure_hotplug": False, "scale_cooldown": 0})
+        ssh = MagicMock()
+        ssh.execute_command.return_value = ("cores: 4\nmemory: 8192", "", 0)
+
+        a._get_vm_manager(ssh, "101")
+        a._get_vm_manager(ssh, "101")
+
+        self.assertEqual(ssh.execute_command.call_args_list, [])
 
 
 if __name__ == "__main__":

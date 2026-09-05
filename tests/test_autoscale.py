@@ -423,8 +423,8 @@ class TestCanScale(unittest.TestCase):
             "min_cores": 1, "max_cores": 8,
             "min_ram": 512, "max_ram": 16384,
         })
-        mgr.last_scale_time = time.time()   # simulate recent scale
-        self.assertFalse(mgr.can_scale())
+        mgr._mark_scaled("cpu")             # simulate a real CPU scaling action
+        self.assertFalse(mgr.can_scale("cpu"))
 
     def test_can_scale_after_cooldown_expires(self):
         mgr = make_vm_manager(config={
@@ -433,8 +433,8 @@ class TestCanScale(unittest.TestCase):
             "min_cores": 1, "max_cores": 8,
             "min_ram": 512, "max_ram": 16384,
         })
-        mgr.last_scale_time = time.time() - 5   # well past cooldown
-        self.assertTrue(mgr.can_scale())
+        mgr._resource_scale_times["cpu"] = time.time() - 5   # well past cooldown
+        self.assertTrue(mgr.can_scale("cpu"))
 
 
 class TestScaleCPU(unittest.TestCase):

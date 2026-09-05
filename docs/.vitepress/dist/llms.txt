@@ -1,0 +1,66 @@
+# Proxmox VM Autoscale
+
+> A systemd service that automatically adjusts CPU cores and RAM of Proxmox VE
+> virtual machines based on real-time usage. It connects to Proxmox nodes over
+> SSH and drives the standard `qm` and `pvesh` command-line tools; there is no
+> agent inside the guests and no Proxmox API token. Written in Python, MIT
+> licensed, maintained by Fabrizio Salmi.
+
+Scope: vertical scaling only — it resizes VMs you list explicitly. It never
+creates, clones, destroys or migrates a VM, does not handle LXC containers, and
+does not scale disk or network. Decisions come from a single instantaneous
+sample per polling cycle, compared against global thresholds; one step (1 core
+or 512 MB) per resource per cycle, bounded by configured limits and a
+per-resource cooldown. There is no dry-run mode.
+
+Key constraints a reader should know: the service authenticates to Proxmox
+nodes as root and holds those credentials in plain text in config.yaml; SSH
+host keys are accepted automatically without pinning; guest metrics are parsed
+from a human-readable `pvesh` table, and a parse failure reads as 0% usage and
+scales VMs down. Only RSA SSH keys load. Per-VM thresholds shown in the example
+config are not read by the code. Billing records spec changes automatically but
+does not generate reports without being called explicitly.
+
+## Getting started
+
+- [Introduction](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/index.html): what it does, what it deliberately does not do, requirements and assumptions
+- [Installation](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/installation.html): installer script and manual install, what lands where, upgrading and uninstalling
+- [Your first scaling VM](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/quick-start.html): minimal config.yaml and how to verify a VM really scales
+
+## Core concepts
+
+- [How scaling decisions are made](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/how-it-works.html): the cycle, both gates, thresholds, fixed step sizes, limits, per-resource cooldowns
+- [Hotplug and NUMA](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/hotplug.html): what applies live versus what needs a guest reboot, and what auto_configure_hotplug changes
+- [Host safety limits](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/host-limits.html): how host_limits gates every decision, including scale-down
+
+## Features
+
+- [Notifications](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/notifications.html): Gotify and SMTP configuration, event priorities, failure handling
+- [Billing tracking](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/billing.html): spec-change recording, what is automatic and what is not, generating a costed CSV
+
+## Running it
+
+- [Operations](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/operations.html): systemd control, log levels and rotation, config changes, monitoring
+- [Troubleshooting](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/troubleshooting.html): startup failures, SSH problems, VMs that never scale, usage stuck at 0%
+- [FAQ](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/faq.html): scope, setup, behaviour, tuning, safety, production readiness
+
+## Reference
+
+- [Configuration reference](https://fabriziosalmi.github.io/proxmox-vm-autoscale/reference/configuration.html): every config.yaml key, type, default and actual effect
+- [Architecture](https://fabriziosalmi.github.io/proxmox-vm-autoscale/reference/architecture.html): modules, control flow, threading, state, error handling, extension points
+- [Python modules](https://fabriziosalmi.github.io/proxmox-vm-autoscale/reference/modules.html): classes and public methods across the five source files
+- [Known limitations](https://fabriziosalmi.github.io/proxmox-vm-autoscale/reference/limitations.html): complete catalogue of known defects and design constraints
+- [Changelog](https://fabriziosalmi.github.io/proxmox-vm-autoscale/reference/changelog.html): release history, including tags published out of chronological order
+
+## Security
+
+- [Threat model](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/index.html): assets, attacker positions, design-level exposures, what is not a risk
+- [Hardening guide](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/hardening.html): file permissions, dedicated SSH key, systemd confinement, egress filtering
+- [Reporting a vulnerability](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/disclosure.html): private disclosure process, scope, response timeline
+
+## Optional
+
+- [Contributing](https://fabriziosalmi.github.io/proxmox-vm-autoscale/contributing.html): development setup, tests, code style, areas that need work
+- [Privacy](https://fabriziosalmi.github.io/proxmox-vm-autoscale/privacy.html): no analytics on this site, no telemetry in the software
+- [Source repository](https://github.com/fabriziosalmi/proxmox-vm-autoscale)
+- [LXC equivalent](https://github.com/fabriziosalmi/proxmox-lxc-autoscale): sibling project for containers
