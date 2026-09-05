@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-05
+
+> **Upgrade note.** Three behaviour changes land together:
+>
+> - A `thresholds:` block in a VM entry now **takes effect**. If you wrote one
+>   expecting it to work, that VM starts using it — re-read the numbers first.
+> - Host keys are now **verified**. The first connection to each node records
+>   its key and a later change is refused. Rebuilt a node? Remove its line from
+>   `ssh_known_hosts`.
+> - Billing starts **writing CSV reports and calling webhooks** where it
+>   previously did nothing.
+
 ### Fixed
 - **Per-VM `thresholds` are read.** The block has been in the example
   `config.yaml` since the beginning and nothing consulted it; every VM used the
@@ -47,6 +59,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   covering threshold resolution and precedence, all three host key policies and
   the mismatch path, uptime-weighted cost, period carry-in, the persisted report
   clock, and the autoscaler's own billing plumbing.
+
+### Changed
+- **New logo.** The bar-chart-and-arrow mark said "analytics" and only showed
+  growth, which misrepresents a service whose point is moving in both
+  directions. The replacement is a solid allocation between two chevrons, and
+  it stays legible at 16px. `favicon.svg` keeps the orange tile for the browser
+  tab and navigation; `logo-mark.svg` is a transparent variant used in the
+  documentation hero.
 
 ## [1.4.0] - 2026-09-05
 
@@ -248,7 +268,8 @@ Recorded here because the original release notes overstate what shipped:
 - Host resource safety checks
 - Scaling cooldown periods
 
-[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v0.1.1...v1.3.0
 [0.1.1]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.2.0...v0.1.1

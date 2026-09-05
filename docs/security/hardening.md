@@ -257,7 +257,7 @@ sudo bash /tmp/install.sh
 Better still, pin to a release rather than tracking `main`:
 
 ```bash
-sudo git clone --branch v1.4.0 --depth 1 \
+sudo git clone --branch v1.5.0 --depth 1 \
   https://github.com/fabriziosalmi/proxmox-vm-autoscale /usr/local/bin/vm_autoscale
 ```
 
