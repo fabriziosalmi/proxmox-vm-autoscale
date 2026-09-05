@@ -11,6 +11,9 @@ class VMResourceManager:
         self.config = config
         self.logger = logging.getLogger("vm_resource_manager")
         self.last_scale_time = 0
+        # CPU and RAM are rate-limited independently: a CPU change must not
+        # swallow the RAM cooldown (and vice versa) within the same cycle.
+        self._resource_scale_times = {"cpu": 0.0, "ram": 0.0}
         self.scale_cooldown = self.config.get("scale_cooldown", 300)  # Default to 5 minutes
         self.scale_lock = threading.Lock()  # Added lock for scaling control
         self.auto_configure_hotplug = self.config.get("auto_configure_hotplug", True)
@@ -108,18 +111,29 @@ class VMResourceManager:
             self.logger.error(f"Failed to retrieve resource usage: {e}")
             return 0.0, 0.0
 
-    def can_scale(self):
-        """Determine if scaling can occur using a lock to avoid race conditions."""
+    def can_scale(self, resource="cpu"):
+        """Report whether `resource` ("cpu" or "ram") is out of its cooldown.
+
+        This is a read-only check: the cooldown is consumed by `_mark_scaled`,
+        which is called only after a scaling command has actually been issued.
+        A threshold breach that results in no change therefore does not block
+        the next check.
+        """
         with self.scale_lock:
             current_time = time.time()
             if current_time - self.last_scale_time < self.scale_cooldown:
                 return False
-            self.last_scale_time = current_time
-            return True
+            last = self._resource_scale_times.get(resource, 0.0)
+            return current_time - last >= self.scale_cooldown
+
+    def _mark_scaled(self, resource):
+        """Start the cooldown for `resource` after a successful scaling action."""
+        with self.scale_lock:
+            self._resource_scale_times[resource] = time.time()
 
     def scale_cpu(self, direction):
         """Scale the CPU cores and vCPUs of the VM."""
-        if not self.can_scale():
+        if not self.can_scale("cpu"):
             return False
 
         try:
@@ -128,12 +142,13 @@ class VMResourceManager:
             min_cores = self._get_min_cores()
             current_vcpus = self._get_current_vcpus()
 
-            self.last_scale_time = time.time()
             if direction == "up" and current_cores < max_cores:
                 self._scale_cpu_up(current_cores, current_vcpus)
+                self._mark_scaled("cpu")
                 return True
             elif direction == "down" and current_cores > min_cores:
                 self._scale_cpu_down(current_cores, current_vcpus)
+                self._mark_scaled("cpu")
                 return True
             else:
                 self.logger.info("No CPU scaling required.")
@@ -144,7 +159,7 @@ class VMResourceManager:
 
     def scale_ram(self, direction):
         """Scale the RAM of the VM."""
-        if not self.can_scale():
+        if not self.can_scale("ram"):
             return False
 
         try:
@@ -152,14 +167,15 @@ class VMResourceManager:
             max_ram = self._get_max_ram()
             min_ram = self._get_min_ram()
 
-            self.last_scale_time = time.time()
             if direction == "up" and current_ram < max_ram:
                 new_ram = min(current_ram + 512, max_ram)
                 self._set_ram(new_ram)
+                self._mark_scaled("ram")
                 return True
             elif direction == "down" and current_ram > min_ram:
                 new_ram = max(current_ram - 512, min_ram)
                 self._set_ram(new_ram)
+                self._mark_scaled("ram")
                 return True
             else:
                 self.logger.info("No RAM scaling required.")
@@ -262,13 +278,27 @@ class VMResourceManager:
             self.logger.error(f"Failed to retrieve CPU cores: {e}")
             return 1
 
+    def _scaling_limit(self, key, legacy_key, default):
+        """Read a limit from the `scaling_limits` section of the config.
+
+        Falls back to a flat top-level key (older config layout) and finally to
+        `default`, so existing installations keep working after the move to
+        the documented `scaling_limits:` section.
+        """
+        limits = self.config.get("scaling_limits") or {}
+        if key in limits and limits[key] is not None:
+            return limits[key]
+        if legacy_key in self.config and self.config[legacy_key] is not None:
+            return self.config[legacy_key]
+        return default
+
     def _get_max_cores(self):
         """Retrieve maximum allowed CPU cores."""
-        return self.config.get("max_cores", 8)
+        return self._scaling_limit("max_cores", "max_cores", 8)
 
     def _get_min_cores(self):
         """Retrieve minimum allowed CPU cores."""
-        return self.config.get("min_cores", 1)
+        return self._scaling_limit("min_cores", "min_cores", 1)
 
     def _get_current_ram(self):
         """Retrieve current RAM assigned to the VM."""
@@ -283,12 +313,12 @@ class VMResourceManager:
             return 512
 
     def _get_max_ram(self):
-        """Retrieve maximum allowed RAM."""
-        return self.config.get("max_ram", 16384)
+        """Retrieve maximum allowed RAM in MB."""
+        return self._scaling_limit("max_ram_mb", "max_ram", 16384)
 
     def _get_min_ram(self):
-        """Retrieve minimum allowed RAM."""
-        return self.config.get("min_ram", 512)
+        """Retrieve minimum allowed RAM in MB."""
+        return self._scaling_limit("min_ram_mb", "min_ram", 512)
 
     def _check_hotplug_enabled(self):
         """Check if hotplug is enabled for CPU and memory on this VM."""

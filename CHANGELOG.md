@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`scaling_limits` from `config.yaml` is now actually enforced.** The config
+  validator required the section, but `VMResourceManager` looked the values up
+  as flat top-level keys under names that did not exist (`max_ram`/`min_ram`
+  instead of `max_ram_mb`/`min_ram_mb`). Every installation silently ran on the
+  hardcoded defaults 1–8 cores and 512–16384 MB, so the documented
+  `min_ram_mb: 1024` (needed because NUMA misbehaves below 1 GB) had no effect.
+  Flat top-level keys are still accepted as a fallback for older configs.
+- **CPU and RAM now have independent cooldowns** ([#30](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/30)):
+  a single shared timestamp meant any CPU threshold breach suppressed RAM
+  scaling for the same cycle. The cooldown is also consumed only when a scaling
+  command is actually issued — previously the mere *check* consumed it, so a
+  VM already at its limit was rate-limited for doing nothing.
+- **`scale_cooldown` now applies between polling cycles.** `VMResourceManager`
+  was rebuilt on every iteration of the main loop, resetting the cooldown to
+  zero; the effective interval was `check_interval`, not `scale_cooldown`.
+  Managers are now cached per VM and rebound to each cycle's SSH connection.
+  As a side effect, hotplug auto-configuration runs once per VM instead of
+  issuing two extra `qm config` calls per VM per cycle.
+
+### Security
+- **`install.sh` no longer leaves `config.yaml` world-readable.** A recursive
+  `chmod 755` over the install directory applied to the config file too, which
+  stores the Proxmox root SSH password and SMTP credentials in plain text. The
+  config and its backup are now `chown root:root` + mode `600`, and the backup
+  directory is mode `700` — matching what `SECURITY.md` already prescribed.
+
+### Added
+- `tests/test_scaling_limits_and_cooldown.py`: 20 regression tests covering
+  limit resolution (including a test that the limits shipped in `config.yaml`
+  are the ones enforced), independent per-resource cooldowns, and manager
+  reuse across cycles.
+
 ## [0.1.1] - 2026-04-27
 
 ### Fixed

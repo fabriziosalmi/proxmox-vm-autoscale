@@ -159,6 +159,10 @@ class VMAutoscaler:
         self.config = self._load_config(config_path)
         self.logger = self._setup_logging(logging_config_path)
         self.notification_manager = NotificationManager(self.config, self.logger)
+        # VMResourceManager instances are reused across polling cycles so the
+        # scaling cooldown survives between iterations of the main loop, and so
+        # hotplug auto-configuration runs once per VM instead of every cycle.
+        self._vm_managers: Dict[str, VMResourceManager] = {}
         
         # Initialize billing tracker if enabled
         self.billing_enabled = self.config.get('billing', {}).get('enabled', False)
@@ -215,7 +219,7 @@ class VMAutoscaler:
             )
             ssh_client.connect()
 
-            vm_manager = VMResourceManager(ssh_client, vm['vm_id'], self.config)
+            vm_manager = self._get_vm_manager(ssh_client, vm['vm_id'])
             
             # First check if VM is running
             if not vm_manager.is_vm_running():
@@ -260,6 +264,22 @@ class VMAutoscaler:
         finally:
             if ssh_client:
                 ssh_client.close()
+
+    def _get_vm_manager(self, ssh_client: SSHClient, vm_id: Any) -> VMResourceManager:
+        """Return the VMResourceManager for `vm_id`, creating it on first use.
+
+        A fresh SSH connection is opened every cycle, so the cached manager is
+        rebound to the current client. Keeping the manager itself alive is what
+        makes `scale_cooldown` meaningful across cycles.
+        """
+        key = str(vm_id)
+        manager = self._vm_managers.get(key)
+        if manager is None:
+            manager = VMResourceManager(ssh_client, vm_id, self.config)
+            self._vm_managers[key] = manager
+        else:
+            manager.ssh_client = ssh_client
+        return manager
 
     def _handle_cpu_scaling(self, vm_manager: VMResourceManager, vm_id: int, cpu_usage: float) -> None:
         """Handle CPU scaling decisions."""
