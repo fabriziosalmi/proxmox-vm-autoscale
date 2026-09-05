@@ -114,7 +114,7 @@ proxmox_hosts:
 | `ssh_user` | string | yes | Needs privileges to run `qm set` — in practice `root` |
 | `ssh_password` | string | one of the two | **Takes precedence over `ssh_key` when both are set** |
 | `ssh_key` | path | one of the two | **RSA keys only** — Ed25519 and ECDSA fail to load |
-| `ssh_port` | int | no | Defaults to `22`. Note: `host['ssh_port']` is read directly, so the key must be present |
+| `ssh_port` | int | **yes** | There is no default in practice: `host['ssh_port']` is indexed directly rather than via `.get()`, so omitting the key raises `KeyError` and every VM on that host fails. Set it to `22` explicitly |
 
 ::: warning Two footguns in the shipped example
 The example config fills in **both** `ssh_password` and `ssh_key` with placeholders. Password wins, so a half-edited config authenticates with the literal string `your_password_here`. Also, `host2` in the example omits `ssh_port` — and the code reads that key unconditionally, so the host raises a `KeyError`. Set `ssh_port` on every host.
