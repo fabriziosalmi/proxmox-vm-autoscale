@@ -157,9 +157,9 @@ The shipped unit sets `User=root` with no systemd sandboxing directives.
 
 ## Project-level notes
 
-### Release tags are not in chronological order
+### Release tags before v1.3.0 are not in chronological order
 
-`v1.2.0` was published in December 2025, `v0.1.1` in April 2026 — and `v0.1.1` is the current release. The numbering does not reflect ordering, and the changelog does not mention `v1.2.0`.
+`v1.2.0` was published in December 2025 and `v0.1.1` in April 2026 — the two release lines were never reconciled. `v1.2.0` is now [documented retroactively](/reference/changelog) and numbering is monotonic from `v1.3.0` onwards, but the historical tags stay as they are.
 
 ### No dry-run mode
 

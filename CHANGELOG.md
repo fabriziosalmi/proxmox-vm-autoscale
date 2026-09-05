@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-05
+
+> **Upgrade note.** Limits you set in `scaling_limits` were previously ignored;
+> they now take effect. Re-read that section before upgrading, particularly if
+> you configured a `max_cores` above 8 or a `min_ram_mb` above 512 and have been
+> running against the hardcoded defaults without realising.
+>
+> This release also **drops Python 3.9**. See *Removed* below.
+
 ### Fixed
 - **`scaling_limits` from `config.yaml` is now actually enforced.** The config
   validator required the section, but `VMResourceManager` looked the values up
@@ -39,10 +48,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directory is mode `700` — matching what `SECURITY.md` already prescribed.
 
 ### Added
-- `tests/test_scaling_limits_and_cooldown.py`: 20 regression tests covering
+- **Documentation site** at <https://fabriziosalmi.github.io/proxmox-vm-autoscale/> —
+  guide, configuration reference, architecture, module API, a full catalogue of
+  known limitations, threat model, hardening guide and privacy statement. Built
+  with VitePress and deployed by GitHub Actions, with `sitemap.xml`, `llms.txt`,
+  `.well-known/security.txt` and JSON-LD structured data.
+- `tests/test_scaling_limits_and_cooldown.py`: 24 regression tests covering
   limit resolution (including a test that the limits shipped in `config.yaml`
-  are the ones enforced), independent per-resource cooldowns, and manager
-  reuse across cycles.
+  are the ones enforced), independent per-resource cooldowns, resource-name
+  validation, and manager reuse and hotplug retry across cycles.
+
+### Changed
+- `install.sh` now installs the `vm_autoscale.service` tracked in the
+  repository instead of generating its own copy inline. The two had drifted:
+  the generated unit had no `RestartSec`, so a crash-looping service restarted
+  as fast as systemd allowed, and the tracked file was never actually used.
+- `install.sh` no longer aborts when pip cannot write to the system
+  interpreter. On Proxmox VE 8 and Debian 12+ that is PEP 668's
+  `externally-managed-environment`, and treating it as fatal failed an
+  installation that was otherwise complete — the apt step already provides
+  `paramiko`, `PyYAML` and `requests`.
+- Dependency floors raised to `paramiko>=5.0.0`, `PyYAML>=6.0.3` and
+  `requests>=2.34.2`.
+- GitHub Actions bumped to current majors. Dependabot now watches the
+  `github-actions` and `npm` ecosystems as well as `pip`.
+- README trimmed from 343 lines to 131, `ARCHITECTURE.md` from 290 to 91 and
+  `SECURITY.md` from 122 to 106, with the long-form material moved to the
+  documentation site rather than maintained in two places and drifting apart.
+
+### Removed
+- **Python 3.9 support.** `requests` 2.34.2 requires Python >= 3.10. Python 3.9
+  reached end of life in October 2025, and the only Proxmox release shipping it
+  is VE 7, end of life since July 2024. The CI matrix is now 3.10–3.12.
+- `release-notes-v0.1.1.md` from the repository root — it duplicated the GitHub
+  release verbatim.
 
 ## [0.1.1] - 2026-04-27
 
@@ -55,6 +94,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Removed unused `cached_mem` and `free_mem` variables from `HostResourceChecker.check_host_resources`.
+
+---
+
+## [1.2.0] - 2025-12-09
+
+> Documented retroactively. This tag was published **before** `0.1.1` despite
+> the higher number — the two release lines were never reconciled. Entries in
+> this file are chronological, so `1.2.0` appears below `0.1.1`. From `1.3.0`
+> onwards the numbering is monotonic again.
+
+### Added
+- **Hotplug support** ([#37](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/37)):
+  `auto_configure_hotplug` enables hotplug and NUMA on managed VMs; RAM changes
+  use `balloon` and CPU changes use `vcpus` so they apply to a running guest,
+  with a fallback when hotplug is unavailable. `cores` changes and NUMA itself
+  still require a guest reboot.
+- **Billing tracking** ([#33](https://github.com/fabriziosalmi/proxmox-vm-autoscale/issues/33)):
+  `billing_tracker.py`, recording CPU/RAM spec changes with timestamps, plus
+  period cost calculation, CSV export and webhook support.
+- 30 unit tests covering hotplug and billing.
+
+### Known issues in this release
+Recorded here because the original release notes overstate what shipped:
+
+- Only spec recording is wired into the service. `generate_period_report`,
+  `export_csv`, `run_webhook`, `record_vm_state_change` and `set_vm_name` are
+  public API that nothing calls, so no CSV is produced and no uptime is tracked
+  unless you invoke them yourself.
+- The cost calculation accepts uptime records and ignores them, so downtime is
+  billed as uptime.
+- `auto_configure_hotplug` ran on every polling cycle, issuing two extra
+  `qm config` calls per VM per cycle. Fixed in 1.3.0.
 
 ---
 
@@ -98,6 +169,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Host resource safety checks
 - Scaling cooldown periods
 
-[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v0.1.1...v1.3.0
+[0.1.1]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.2.0...v0.1.1
+[1.2.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v0.1.0...v1.2.0
 [0.1.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/releases/tag/v0.1.0

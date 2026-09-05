@@ -61,10 +61,10 @@ All are documented in the [threat model](/security/).
 | Version | Supported |
 |---|---|
 | `main` | ✅ |
-| Latest release (`v0.1.1`) | ✅ |
+| Latest release (`v1.3.0`) | ✅ |
 | Older tags | ⚠️ Alpha — upgrade |
 
-Note that release tags are not in chronological order: `v1.2.0` predates `v0.1.1`.
+Note that release tags before `v1.3.0` are not in chronological order: `v1.2.0` was published before `v0.1.1`. Numbering is monotonic from `v1.3.0` onwards.
 
 ## machine-readable
 

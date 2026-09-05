@@ -35,8 +35,9 @@ and told when it is safe to publish.
 | Latest release | ✅ |
 | Older tags | ⚠️ Upgrade — this project is pre-1.0 in maturity |
 
-> Release tags are not in chronological order: `v1.2.0` was published before
-> `v0.1.1`. Go by the [releases page](https://github.com/fabriziosalmi/proxmox-vm-autoscale/releases),
+> Release tags before `v1.3.0` are not in chronological order: `v1.2.0` was
+> published before `v0.1.1`. Numbering is monotonic from `v1.3.0` onwards. Go by
+> the [releases page](https://github.com/fabriziosalmi/proxmox-vm-autoscale/releases),
 > not by the highest number.
 
 ## Scope

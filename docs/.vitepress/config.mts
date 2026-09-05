@@ -141,7 +141,7 @@ export default defineConfig({
       { text: 'Reference', link: '/reference/configuration', activeMatch: '/reference/' },
       { text: 'Security', link: '/security/', activeMatch: '/security/' },
       {
-        text: 'v0.1.1',
+        text: 'v1.3.0',
         items: [
           { text: 'Changelog', link: '/reference/changelog' },
           { text: 'Releases', link: REPO + '/releases' },
