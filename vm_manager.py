@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import time
@@ -108,23 +109,124 @@ class VMResourceManager:
         return False
 
     def get_resource_usage(self):
-        """Retrieve CPU and RAM usage as percentages."""
+        """Return (cpu_percent, ram_percent) for this VM.
+
+        Either element is ``None`` when that metric could not be read. ``None``
+        is deliberately distinct from ``0.0``: an unreadable metric used to be
+        reported as zero, which sits below every sensible ``low`` threshold, so
+        a parsing failure was indistinguishable from an idle guest and walked
+        the VM down to its minimum one step per cycle. Callers must skip
+        scaling on ``None`` rather than acting on it.
+
+        A guest that is powered off genuinely uses nothing, so that case still
+        reports ``(0.0, 0.0)``.
+        """
         try:
             if not self.is_vm_running():
                 return 0.0, 0.0
-            #command = f"qm status {self.vm_id} --verbose"
-            # Updated command  - this might well be refinable to simpler and faster.
-            vmid = self.vm_id
-            command = f"pvesh get /cluster/resources | grep 'qemu/{vmid}' | awk -F '│' '{{print $6, $15, $16}}'"
-            output = self.ssh_client.execute_command(command)
-            # example output: "  3.17%     5.00 GiB     3.82 GiB "
-            self.logger.info(f"VM status output: {output}")
-            cpu_usage = self._parse_cpu_usage(output)
-            ram_usage = self._parse_ram_usage(output)
+
+            resource = self._fetch_cluster_resource()
+            if resource is None:
+                return None, None
+
+            cpu_usage = self._cpu_percent(resource)
+            ram_usage = self._ram_percent(resource)
             return cpu_usage, ram_usage
         except Exception as e:
-            self.logger.error(f"Failed to retrieve resource usage: {e}")
-            return 0.0, 0.0
+            self.logger.error(f"Failed to retrieve resource usage for VM {self.vm_id}: {e}")
+            return None, None
+
+    def _fetch_cluster_resource(self):
+        """Return this VM's entry from `pvesh get /cluster/resources`, or None.
+
+        Asks for JSON rather than scraping the human-readable table. The old
+        `grep 'qemu/<vmid>' | awk -F '│'` pipeline depended on box-drawing
+        separators and fixed column positions, both of which move between
+        Proxmox versions, and its substring match also caught VMID 1010 when
+        looking for 101.
+        """
+        command = "pvesh get /cluster/resources --output-format json"
+        output = self.ssh_client.execute_command(command)
+        output_str = self._get_command_output(output)
+
+        if not output_str:
+            self.logger.warning(
+                f"VM {self.vm_id}: empty response from `{command}`."
+            )
+            return None
+
+        try:
+            resources = json.loads(output_str)
+        except ValueError as e:
+            self.logger.error(
+                f"VM {self.vm_id}: could not parse cluster resources as JSON: {e}"
+            )
+            return None
+
+        if not isinstance(resources, list):
+            self.logger.error(
+                f"VM {self.vm_id}: unexpected cluster resources payload "
+                f"({type(resources).__name__}, expected a list)."
+            )
+            return None
+
+        wanted = str(self.vm_id)
+        for entry in resources:
+            if not isinstance(entry, dict) or entry.get("type") != "qemu":
+                continue
+            if str(entry.get("vmid")) == wanted:
+                return entry
+
+        self.logger.warning(
+            f"VM {self.vm_id}: not present in cluster resources. "
+            "It may have been removed, or it belongs to another cluster."
+        )
+        return None
+
+    def _cpu_percent(self, resource):
+        """CPU usage as a percentage, or None when the field is unusable.
+
+        Proxmox reports `cpu` as a fraction of the guest's allocated CPUs.
+        """
+        value = resource.get("cpu")
+        if value is None:
+            self.logger.warning(f"VM {self.vm_id}: no 'cpu' field in cluster resources.")
+            return None
+        try:
+            return float(value) * 100
+        except (TypeError, ValueError):
+            self.logger.warning(f"VM {self.vm_id}: non-numeric 'cpu' value {value!r}.")
+            return None
+
+    def _ram_percent(self, resource):
+        """RAM usage as a percentage of the guest's maximum, or None.
+
+        `mem` and `maxmem` are byte counts.
+        """
+        used = resource.get("mem")
+        total = resource.get("maxmem")
+        if used is None or total is None:
+            self.logger.warning(
+                f"VM {self.vm_id}: missing 'mem' or 'maxmem' in cluster resources."
+            )
+            return None
+        try:
+            used = float(used)
+            total = float(total)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                f"VM {self.vm_id}: non-numeric memory values "
+                f"mem={used!r} maxmem={total!r}."
+            )
+            return None
+
+        if total <= 0:
+            self.logger.warning(
+                f"VM {self.vm_id}: maxmem is {total}; cannot compute a usage percentage."
+            )
+            return None
+
+        return (used / total) * 100
 
     def _validate_resource(self, resource):
         """Reject unknown resource names instead of silently skipping the cooldown."""
@@ -209,76 +311,6 @@ class VMResourceManager:
         except Exception as e:
             self.logger.error(f"Failed to scale RAM: {e}")
             raise
-
-    def _parse_cpu_usage(self, output):
-        """Parse CPU usage from VM status output."""
-        try:
-            output_str = self._get_command_output(output)
-            percentage_cpu_match = re.search(r"^\s*(\d+(?:\.\d+)?)%", output_str)
-            if percentage_cpu_match:
-                return float(percentage_cpu_match.group(1))
-            self.logger.warning("CPU usage not found in output.")
-            return 0.0
-        except Exception as e:
-            self.logger.error(f"Error parsing CPU usage: {e}")
-            return 0.0
-    
-    def _convert_to_gib(self, value, unit):
-        """ Converts memory units to GiB. """
-        unit = unit.lower()
-        if unit == 'gib':
-            return value
-        elif unit == 'mib':
-            return value / 1024  # Convert MiB to GiB
-        else:
-            self.logger.warning(f"Unknown memory unit '{unit}'. Assuming GiB.")
-            return value  # Assume GiB if unit is unknown
-
-    def _parse_ram_usage(self, output):
-        """ Parses RAM usage from VM status output. """
-        try:
-            output_str = self._get_command_output(output)
-            self.logger.debug(f"Processing output: '{output_str}'")
-            # ----------------------------
-            # Extract Memory Values
-            # ----------------------------
-            # Pattern Explanation:
-            # - (\d+(?:\.\d+)?)\s+(GiB|MiB) : Capture first memory value and its unit
-            # - \s+                         : Match one or more whitespace characters
-            # - (\d+(?:\.\d+)?)\s+(GiB|MiB) : Capture second memory value and its unit
-            pattern_memory = r"(\d+(?:\.\d+)?)\s+(GiB|MiB)\s+(\d+(?:\.\d+)?)\s+(GiB|MiB)"
-            memory_match = re.search(pattern_memory, output_str)
-            if memory_match:
-                max_mem_value = float(memory_match.group(1))
-                max_mem_unit = memory_match.group(2)
-                used_mem_value = float(memory_match.group(3))
-                used_mem_unit = memory_match.group(4)
-
-                self.logger.debug(f"Extracted Max Memory: {max_mem_value} {max_mem_unit}")
-                self.logger.debug(f"Extracted Used Memory: {used_mem_value} {used_mem_unit}")
-
-                # Convert memory values to GiB
-                max_mem_gib = self._convert_to_gib(max_mem_value, max_mem_unit)
-                used_mem_gib = self._convert_to_gib(used_mem_value, used_mem_unit)
-
-                self.logger.debug(f"Converted Max Memory: {max_mem_gib} GiB")
-                self.logger.debug(f"Converted Used Memory: {used_mem_gib} GiB")
-
-                if max_mem_gib == 0:
-                    self.logger.warning("Maximum memory is zero. Cannot compute usage percentage.")
-                    return 0.0
-
-                # Calculate RAM usage percentage based on memory values
-                usage_percentage = (used_mem_gib / max_mem_gib) * 100
-                self.logger.debug(f"Calculated RAM Usage: {usage_percentage:.2f}%")
-                return usage_percentage
-            else:
-                self.logger.warning("RAM memory values not found in output.")
-                return 0.0
-
-        except Exception as e:
-            self.logger.error(f"Error parsing RAM usage: {e}")
-            return 0.0
 
     def _get_current_vcpus(self):
         """Retrieve current vCPUs assigned to the VM."""

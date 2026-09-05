@@ -63,7 +63,7 @@ Runs hotplug auto-configuration in the constructor when `auto_configure_hotplug`
 | Method | Signature | Returns |
 |---|---|---|
 | `is_vm_running` | `(retries=3, delay=5) -> bool` | `False` if undeterminable after retries |
-| `get_resource_usage` | `() -> tuple[float, float]` | `(cpu_pct, ram_pct)`; `(0.0, 0.0)` on any failure |
+| `get_resource_usage` | `() -> tuple[float \| None, float \| None]` | `(cpu_pct, ram_pct)`. Either element is `None` when that metric could not be read — **never `0.0`**, which would read as idle. A powered-off guest reports `(0.0, 0.0)` |
 | `can_scale` | `(resource: str = "cpu") -> bool` | Read-only cooldown check |
 | `scale_cpu` | `(direction: "up" \| "down") -> bool` | `True` only if a change was made |
 | `scale_ram` | `(direction: "up" \| "down") -> bool` | `True` only if a change was made |
@@ -80,7 +80,8 @@ Runs hotplug auto-configuration in the constructor when `auto_configure_hotplug`
 | `_check_hotplug_enabled()` | `(cpu_hotplug, memory_hotplug)` |
 | `_check_numa_enabled()` | `bool` |
 | `_set_cores` / `_set_vcpus` / `_set_ram` | Issue `qm set` |
-| `_parse_cpu_usage` / `_parse_ram_usage` | Regex over `pvesh` table output |
+| `_fetch_cluster_resource()` | This VM's row from `pvesh get /cluster/resources --output-format json`, matched on `type == "qemu"` and an exact `vmid`; `None` if absent or unparseable |
+| `_cpu_percent` / `_ram_percent` | Percentages from that row; `None` on missing or non-numeric fields |
 
 Failing getters return conservative defaults — `1` core, `512` MB — rather than raising. A transient SSH failure during a config read therefore looks like a very small VM.
 
@@ -97,10 +98,11 @@ SSHClient(host, user, password=None, key_path=None, port=22)
 | `connect` | `() -> None` | Reuses an active transport. 5 attempts, backoff 1/2/4/8/16 s. Auth failures raise immediately |
 | `execute_command` | `(command: str, timeout=30) -> tuple[str, str, int]` | `(stdout, stderr, exit_status)`. Retries with reconnect; **does not raise on non-zero exit** |
 | `close` | `() -> None` | Idempotent |
+| `_load_private_key` | `() -> paramiko.PKey` | Any supported key type; raises `SSHException` naming the path on failure |
 | `is_connected` | `() -> bool` | |
 | `__enter__` / `__exit__` | | Context-manager support |
 
-Notes: the missing-host-key policy is auto-add, and `key_path` is loaded as an **RSA** key specifically. Both are covered in the [threat model](/security/).
+Notes: the missing-host-key policy is auto-add — see the [threat model](/security/). `key_path` is loaded by `_load_private_key()`, which uses `paramiko.PKey.from_path` so Ed25519, ECDSA, RSA and DSS all work, falling back to trying each key class on paramiko releases without it. Encrypted keys are not supported.
 
 ## `host_resource_checker.py`
 

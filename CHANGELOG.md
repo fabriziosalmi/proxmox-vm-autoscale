@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Guest metrics no longer come from scraping a table.** Usage was read with
+  `pvesh get /cluster/resources | grep 'qemu/<vmid>' | awk -F '│' …`, which
+  depended on box-drawing separators and fixed column positions — both of which
+  move between Proxmox versions — and whose substring match also caught VMID
+  `1010` when looking for `101`. The service now requests
+  `--output-format json` and matches on `type == "qemu"` and an exact `vmid`.
+- **An unreadable metric is no longer treated as zero.** A parse failure used to
+  report `0.0`, which sits below every sensible `low` threshold, so it was
+  indistinguishable from an idle guest and walked the VM down to its minimum one
+  step per cycle. `get_resource_usage()` now returns `None` for a metric it
+  could not read, the log says `unavailable`, and scaling is skipped for that
+  resource. A genuinely idle guest still reports `0.0` and still scales down.
+- **SSH keys of any type now load** ([Ed25519 included](https://fabriziosalmi.github.io/proxmox-vm-autoscale/security/hardening.html)).
+  `RSAKey.from_private_key_file` was called directly, so an Ed25519 key — the
+  type `SECURITY.md` recommends — failed to load however valid it was. Key
+  loading now goes through `paramiko.PKey.from_path`, with a per-class fallback
+  for older paramiko. Encrypted keys remain unsupported, and the error now names
+  the file and the reason.
+
+### Added
+- 30 regression tests (138 total), including real Ed25519, ECDSA and RSA keys
+  generated on disk and loaded through the production path, and JSON payloads
+  covering the VMID-prefix collision, LXC guests sharing a VMID, missing and
+  non-numeric fields, and the distinction between unreadable and idle.
+
+### Removed
+- `_parse_cpu_usage`, `_parse_ram_usage` and `_convert_to_gib` — the regex
+  parsers for the old table format.
+
 ## [1.3.0] - 2026-09-05
 
 > **Upgrade note.** Limits you set in `scaling_limits` were previously ignored;

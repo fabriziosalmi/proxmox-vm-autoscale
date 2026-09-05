@@ -54,16 +54,28 @@ If either figure exceeds `host_limits.max_host_cpu_percent` or `max_host_ram_per
 ## Reading guest usage
 
 ```bash
-pvesh get /cluster/resources | grep 'qemu/<vmid>' | awk -F '│' '{print $6, $15, $16}'
+pvesh get /cluster/resources --output-format json
 ```
 
-The three fields are CPU percentage, maximum memory and used memory. CPU is taken from the leading percentage; RAM percentage is computed as used ÷ maximum, with MiB and GiB units normalised.
+The service parses the JSON and picks the row where `type` is `qemu` and `vmid` equals the configured VMID exactly. From that row:
 
-::: warning This parsing is fragile
-It depends on `pvesh`'s human-readable table: on the box-drawing separator, on those exact column positions, and on `grep` matching. `grep 'qemu/101'` also matches VMID `1010` and `1011`. If usage always reads as `0.0%` on your Proxmox version, this is almost certainly why — see [known limitations](/reference/limitations#metric-parsing-is-format-sensitive).
+- **CPU** — the `cpu` field, a fraction of the guest's allocated CPUs, × 100.
+- **RAM** — `mem ÷ maxmem × 100`, both byte counts.
+
+::: info This used to be a table scrape
+Earlier versions ran `pvesh get /cluster/resources | grep 'qemu/<vmid>' | awk -F '│' …`, which depended on box-drawing separators and fixed column positions — both of which move between Proxmox versions — and whose substring match also caught VMID `1010` when looking for `101`. Both problems are gone.
 :::
 
-When usage cannot be parsed the service logs a warning and uses `0.0`. Zero is below every sensible `low` threshold, so **an unreadable metric looks identical to an idle guest** and triggers a scale *down*. This is the mechanism behind several historical "scaled down to minimum for no reason" reports.
+::: warning An unreadable metric is skipped, not treated as zero
+When a metric cannot be read the service reports it as **unavailable** and skips scaling that resource for the cycle:
+
+```
+[INFO]    VM 101 current usage - CPU: unavailable, RAM: 41.50%
+[WARNING] VM 101: CPU usage unavailable; skipping CPU scaling.
+```
+
+Earlier versions substituted `0.0`, which sits below every sensible `low` threshold — so a failed read was indistinguishable from an idle guest and walked the VM down to its minimum, one step per cycle. That is the mechanism behind several historical "scaled down for no reason" reports.
+:::
 
 ## The thresholds
 

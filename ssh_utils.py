@@ -48,7 +48,7 @@ class SSHClient:
                         timeout=10
                     )
                 elif self.key_path:
-                    private_key = paramiko.RSAKey.from_private_key_file(self.key_path)
+                    private_key = self._load_private_key()
                     self.client.connect(
                         hostname=self.host, 
                         username=self.user, 
@@ -73,6 +73,43 @@ class SSHClient:
                 sleep_time = self.backoff_factor * (2 ** (attempt - 1))
                 self.logger.info(f"Retrying connection to {self.host} in {sleep_time} seconds (attempt {attempt}/{self.max_retries})")
                 time.sleep(sleep_time)
+
+    def _load_private_key(self):
+        """Load the configured private key, whatever its type.
+
+        `paramiko.PKey.from_path` detects the format itself, so Ed25519,
+        ECDSA, RSA and DSS keys all work. The previous implementation called
+        `RSAKey.from_private_key_file` directly, which meant an Ed25519 key -
+        the type SECURITY.md recommends - simply failed to load.
+
+        Older paramiko releases have no `from_path`, so fall back to trying
+        each concrete key class in turn.
+        """
+        from_path = getattr(paramiko.PKey, "from_path", None)
+        if from_path is not None:
+            try:
+                return from_path(self.key_path)
+            except Exception as e:
+                raise SSHException(
+                    f"Could not load private key {self.key_path}: {e}. "
+                    "Encrypted keys are not supported; use an unencrypted key "
+                    "or an ssh-agent-independent copy."
+                ) from e
+
+        attempts = []
+        for name in ("Ed25519Key", "ECDSAKey", "RSAKey", "DSSKey"):
+            key_class = getattr(paramiko, name, None)
+            if key_class is None:
+                continue
+            try:
+                return key_class.from_private_key_file(self.key_path)
+            except Exception as e:
+                attempts.append(f"{name}: {e}")
+
+        raise SSHException(
+            f"Could not load private key {self.key_path} as any supported type. "
+            + "; ".join(attempts)
+        )
 
     def execute_command(self, command, timeout=30):
         """Execute a command on the remote server with retry logic."""

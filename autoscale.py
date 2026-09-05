@@ -234,26 +234,49 @@ class VMAutoscaler:
                 self.logger.warning(f"Host {host['name']} resources maxed out. Skipping scaling.")
                 return
 
-            # Get current resource usage once to avoid multiple calls
+            # Get current resource usage once to avoid multiple calls.
+            # Either figure is None when it could not be read; that is not the
+            # same as zero, and must never be fed to a scaling decision.
             current_cpu_usage, current_ram_usage = vm_manager.get_resource_usage()
-            self.logger.info(f"VM {vm['vm_id']} current usage - CPU: {current_cpu_usage}%, RAM: {current_ram_usage}%")
+            self.logger.info(
+                f"VM {vm['vm_id']} current usage - "
+                f"CPU: {self._format_usage(current_cpu_usage)}, "
+                f"RAM: {self._format_usage(current_ram_usage)}"
+            )
+
+            if current_cpu_usage is None and current_ram_usage is None:
+                self.logger.warning(
+                    f"VM {vm['vm_id']}: no usage metrics available this cycle. "
+                    "Skipping scaling rather than treating the VM as idle."
+                )
+                return
 
             # Handle CPU scaling if enabled
             if vm.get('cpu_scaling', False):
-                try:
-                    self._handle_cpu_scaling(vm_manager, vm['vm_id'], current_cpu_usage)
-                    self.logger.debug(f"CPU scaling completed for VM {vm['vm_id']}")
-                except Exception as e:
-                    self.logger.error(f"CPU scaling failed for VM {vm['vm_id']}: {str(e)}")
-                    # Continue to RAM scaling even if CPU scaling fails
+                if current_cpu_usage is None:
+                    self.logger.warning(
+                        f"VM {vm['vm_id']}: CPU usage unavailable; skipping CPU scaling."
+                    )
+                else:
+                    try:
+                        self._handle_cpu_scaling(vm_manager, vm['vm_id'], current_cpu_usage)
+                        self.logger.debug(f"CPU scaling completed for VM {vm['vm_id']}")
+                    except Exception as e:
+                        self.logger.error(f"CPU scaling failed for VM {vm['vm_id']}: {str(e)}")
+                        # Continue to RAM scaling even if CPU scaling fails
 
             # Handle RAM scaling if enabled
             if vm.get('ram_scaling', False):
-                try:
-                    self._handle_ram_scaling(vm_manager, vm['vm_id'], current_ram_usage)
-                    self.logger.debug(f"RAM scaling completed for VM {vm['vm_id']}")
-                except Exception as e:
-                    self.logger.error(f"RAM scaling failed for VM {vm['vm_id']}: {str(e)}")
+                if current_ram_usage is None:
+                    self.logger.warning(
+                        f"VM {vm['vm_id']}: RAM usage unavailable; skipping RAM scaling."
+                    )
+                else:
+                    try:
+                        self._handle_ram_scaling(vm_manager, vm['vm_id'], current_ram_usage)
+                        self.logger.debug(f"RAM scaling completed for VM {vm['vm_id']}")
+                    except Exception as e:
+                        self.logger.error(f"RAM scaling failed for VM {vm['vm_id']}: {str(e)}")
 
         except Exception as e:
             self.logger.error(f"Error processing VM {vm['vm_id']} on host {host['name']}: {e}")
@@ -284,8 +307,16 @@ class VMAutoscaler:
             manager.ensure_hotplug_configured()
         return manager
 
-    def _handle_cpu_scaling(self, vm_manager: VMResourceManager, vm_id: int, cpu_usage: float) -> None:
-        """Handle CPU scaling decisions."""
+    @staticmethod
+    def _format_usage(value: Optional[float]) -> str:
+        """Render a usage figure for the log, distinguishing unknown from zero."""
+        return "unavailable" if value is None else f"{value:.2f}%"
+
+    def _handle_cpu_scaling(self, vm_manager: VMResourceManager, vm_id: int,
+                            cpu_usage: Optional[float]) -> None:
+        """Handle CPU scaling decisions. A None reading is never acted on."""
+        if cpu_usage is None:
+            return
         thresholds = self.config['scaling_thresholds']['cpu']
         if cpu_usage > thresholds['high']:
             if vm_manager.scale_cpu('up'):
@@ -306,8 +337,11 @@ class VMAutoscaler:
                 if self.billing_tracker:
                     self._record_billing_spec(vm_manager, vm_id)
 
-    def _handle_ram_scaling(self, vm_manager: VMResourceManager, vm_id: int, ram_usage: float) -> None:
-        """Handle RAM scaling decisions."""
+    def _handle_ram_scaling(self, vm_manager: VMResourceManager, vm_id: int,
+                            ram_usage: Optional[float]) -> None:
+        """Handle RAM scaling decisions. A None reading is never acted on."""
+        if ram_usage is None:
+            return
         thresholds = self.config['scaling_thresholds']['ram']
         if ram_usage > thresholds['high']:
             if vm_manager.scale_ram('up'):
