@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from metrics import build_registry
 from autoscale import NotificationManager, ConfigurationError, VMAutoscaler
 from config_schema import ConfigurationInvalid
+from builders import make_autoscaler, valid_config
 
 
 # ---------------------------------------------------------------------------
@@ -238,18 +239,8 @@ class TestLoadConfig(unittest.TestCase):
 class TestHandleCPUScaling(unittest.TestCase):
 
     def _make_autoscaler(self):
-        """Build a VMAutoscaler with mocked init to avoid file I/O."""
-        with patch.object(VMAutoscaler, "__init__", lambda s, *a, **kw: None):
-            a = VMAutoscaler.__new__(VMAutoscaler)
-        a.config = {
-            "scaling_thresholds": {"cpu": {"high": 80, "low": 20}},
-        }
-        a.logger = make_logger()
-        a.notification_manager = MagicMock()
-        a.billing_tracker = None
-        a.dry_run = False
-        a.metrics = build_registry()
-        return a
+        """A real VMAutoscaler built from a real config file."""
+        return make_autoscaler(self)
 
     def test_scales_up_on_high_cpu(self):
         a = self._make_autoscaler()
@@ -298,17 +289,8 @@ class TestHandleCPUScaling(unittest.TestCase):
 class TestHandleRAMScaling(unittest.TestCase):
 
     def _make_autoscaler(self):
-        with patch.object(VMAutoscaler, "__init__", lambda s, *a, **kw: None):
-            a = VMAutoscaler.__new__(VMAutoscaler)
-        a.config = {
-            "scaling_thresholds": {"ram": {"high": 80, "low": 20}},
-        }
-        a.logger = make_logger()
-        a.notification_manager = MagicMock()
-        a.billing_tracker = None
-        a.dry_run = False
-        a.metrics = build_registry()
-        return a
+        """A real VMAutoscaler built from a real config file."""
+        return make_autoscaler(self)
 
     def test_scales_up_on_high_ram(self):
         a = self._make_autoscaler()
@@ -533,20 +515,7 @@ class TestUnreadableMetricsNeverScale(unittest.TestCase):
     """The autoscaler side of the same guarantee: None is never acted on."""
 
     def _autoscaler(self):
-        with patch.object(VMAutoscaler, "__init__", lambda s, *a, **kw: None):
-            a = VMAutoscaler.__new__(VMAutoscaler)
-        a.config = {
-            "scaling_thresholds": {"cpu": {"high": 80, "low": 20},
-                                   "ram": {"high": 85, "low": 25}},
-            "host_limits": {"max_host_cpu_percent": 90, "max_host_ram_percent": 90},
-        }
-        a.logger = make_logger()
-        a.notification_manager = MagicMock()
-        a.billing_tracker = None
-        a.dry_run = False
-        a.metrics = build_registry()
-        a._vm_managers = {}
-        return a
+        return make_autoscaler(self)
 
     def test_format_usage_distinguishes_unknown_from_zero(self):
         a = self._autoscaler()

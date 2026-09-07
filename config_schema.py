@@ -32,6 +32,7 @@ KNOWN_TOP_LEVEL = {
     "scaling_thresholds", "scaling_limits", "proxmox_hosts", "virtual_machines",
     "host_limits", "check_interval", "scale_cooldown", "auto_configure_hotplug",
     "dry_run", "metrics", "ssh_host_key_policy", "ssh_known_hosts",
+    "scale_down_after_cycles", "notification_dedup_seconds",
     "logging", "gotify", "alerts", "billing",
     # Legacy flat limit keys, still honoured for older configs.
     "min_cores", "max_cores", "min_ram", "max_ram",
@@ -328,7 +329,9 @@ class _Validator:
 
     def check_timing(self) -> None:
         for key, low, high in (("check_interval", 10, 86400),
-                               ("scale_cooldown", 0, 86400)):
+                               ("scale_cooldown", 0, 86400),
+                               ("scale_down_after_cycles", 1, 100),
+                               ("notification_dedup_seconds", 0, 86400)):
             if key in self.config:
                 self._number(self.config[key], key, low, high, integer=True)
 

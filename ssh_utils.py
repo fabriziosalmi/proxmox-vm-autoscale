@@ -220,7 +220,14 @@ class SSHClient:
                 try:
                     self.connect()
                 except Exception as connect_err:
+                    # Without this, self.client stays None and every remaining
+                    # attempt fails with AttributeError, burying the real cause
+                    # under a confusing NoneType error.
                     self.logger.error(f"Reconnection failed on {self.host}: {str(connect_err)}")
+                    raise SSHException(
+                        f"Lost the connection to {self.host} while running "
+                        f"`{command}` and could not reconnect: {connect_err}"
+                    ) from connect_err
                 time.sleep(self.backoff_factor * (2 ** (attempts - 1)))
         raise Exception(f"Failed to execute command on {self.host} after {attempts} attempts.")
 

@@ -20,17 +20,62 @@ from billing_tracker import BillingDataError, BillingTracker
 from metrics import MetricsServer, build_registry
 from version import __version__
 from functools import wraps
-from typing import Union, List, Optional, Dict, Any
+from typing import Union, List, Optional, Dict, Any, Tuple
 
 class ConfigurationError(Exception):
     """Custom exception for configuration-related errors."""
     pass
 
 class NotificationManager:
+    #: How long an identical message is suppressed after being sent. An
+    #: unreachable node produced one priority-9 notification per VM per cycle -
+    #: twenty VMs on a five-minute interval is 240 an hour, indefinitely, and
+    #: the real alert is somewhere underneath them.
+    DEFAULT_DEDUP_WINDOW = 900
+
     def __init__(self, config: Dict[str, Any], logger: logging.Logger):
         self.config = config
         self.logger = logger
+        self.dedup_window = config.get('notification_dedup_seconds',
+                                       self.DEFAULT_DEDUP_WINDOW)
+        self._last_sent: Dict[str, float] = {}
+        self._suppressed: Dict[str, int] = {}
         self.validate_notification_config()
+
+    def _dedup_key(self, message: str) -> str:
+        """Collapse messages that differ only in their measured values.
+
+        "CPU: 91.2%" and "CPU: 93.7%" are the same event for alerting
+        purposes; without this, every cycle produces a new unique string.
+        """
+        # Only measurements are collapsed: a decimal, or a number followed by
+        # a percent sign. Blanking every digit would make "Host pve1
+        # unreachable" and "Host pve2 unreachable" the same event.
+        return re.sub(r"\b\d+\.\d+%?|\b\d+%", "#", message)
+
+    def _should_send(self, message: str) -> bool:
+        """Rate-limit identical notifications, and say so when resuming."""
+        if self.dedup_window <= 0:
+            return True
+
+        key = self._dedup_key(message)
+        now = time.monotonic()
+        last = self._last_sent.get(key)
+
+        if last is not None and (now - last) < self.dedup_window:
+            self._suppressed[key] = self._suppressed.get(key, 0) + 1
+            self.logger.debug(f"Suppressing a repeated notification: {message}")
+            return False
+
+        skipped = self._suppressed.pop(key, 0)
+        if skipped:
+            self.logger.info(
+                f"Resuming notifications for a repeated event; {skipped} "
+                f"identical message(s) were suppressed in the last "
+                f"{self.dedup_window}s."
+            )
+        self._last_sent[key] = now
+        return True
 
     def validate_notification_config(self) -> None:
         """Validate notification configuration at startup."""
@@ -137,6 +182,9 @@ class NotificationManager:
         if self.config.get('dry_run', False):
             formatted_message = f"[DRY RUN] {formatted_message}"
 
+        if not self._should_send(formatted_message):
+            return
+
         if self.config.get('gotify', {}).get('enabled', False):
             try:
                 self.send_gotify_notification(formatted_message, priority)
@@ -174,6 +222,11 @@ class VMAutoscaler:
         # Last observed running state per VM, so billing records transitions
         # rather than one entry per poll.
         self._vm_states: Dict[str, bool] = {}
+        # Consecutive observations below the low threshold, per VM and
+        # resource. Growing is fail-safe and acts at once; shrinking can drive
+        # a guest into swap or refuse a vCPU unplug, so it has to be earned.
+        self._low_streaks: Dict[Tuple[str, str], int] = {}
+        self.scale_down_after = int(self.config.get('scale_down_after_cycles', 2))
         self.dry_run = bool(self.config.get('dry_run', False))
         self.metrics = build_registry()
         self.metrics.set('vm_autoscale_build_info', 1,
@@ -285,6 +338,8 @@ class VMAutoscaler:
             ssh_client.connect()
 
             vm_manager = self._get_vm_manager(ssh_client, vm)
+            # Fresh connection, fresh cycle: nothing carried over from last time.
+            vm_manager.invalidate_cache()
 
             # First check if VM is running
             running = vm_manager.is_vm_running()
@@ -417,6 +472,34 @@ class VMAutoscaler:
             manager.ensure_hotplug_configured()
         return manager
 
+    def _confirm_scale_down(self, vm_id: Any, resource: str, below: bool) -> bool:
+        """Whether a shrink has been observed often enough to act on.
+
+        Scale-up and scale-down are not symmetric operations. Adding capacity
+        fails safe; reclaiming memory from a guest that is using it drives it
+        into swap or to the OOM killer, and a vCPU unplug may simply be
+        refused. A single sample is not evidence enough for the second kind.
+        """
+        key = (str(vm_id), resource)
+
+        if not below:
+            self._low_streaks.pop(key, None)
+            return False
+
+        streak = self._low_streaks.get(key, 0) + 1
+        self._low_streaks[key] = streak
+
+        if streak < self.scale_down_after:
+            self.logger.info(
+                f"VM {vm_id}: {resource} below its low threshold "
+                f"({streak}/{self.scale_down_after} consecutive readings). "
+                "Holding until it is sustained."
+            )
+            return False
+
+        self._low_streaks.pop(key, None)
+        return True
+
     def _thresholds_for(self, vm: Dict[str, Any], resource: str) -> Dict[str, float]:
         """Resolve the high/low thresholds for one VM and one resource.
 
@@ -506,7 +589,10 @@ class VMAutoscaler:
         if cpu_usage is None:
             return
         thresholds = thresholds or self.config['scaling_thresholds']['cpu']
+        below = cpu_usage < thresholds['low']
+        sustained = self._confirm_scale_down(vm_id, 'cpu', below)
         if cpu_usage > thresholds['high']:
+            self._low_streaks.pop((str(vm_id), 'cpu'), None)
             if vm_manager.scale_cpu('up'):
                 self.metrics.inc('vm_autoscale_scaling_actions_total',
                                  {'vm_id': str(vm_id), 'resource': 'cpu',
@@ -518,7 +604,7 @@ class VMAutoscaler:
                 # Record for billing
                 if self.billing_tracker:
                     self._record_billing_spec(vm_manager, vm_id)
-        elif cpu_usage < thresholds['low']:
+        elif sustained:
             if vm_manager.scale_cpu('down'):
                 self.metrics.inc('vm_autoscale_scaling_actions_total',
                                  {'vm_id': str(vm_id), 'resource': 'cpu',
@@ -538,7 +624,10 @@ class VMAutoscaler:
         if ram_usage is None:
             return
         thresholds = thresholds or self.config['scaling_thresholds']['ram']
+        below = ram_usage < thresholds['low']
+        sustained = self._confirm_scale_down(vm_id, 'ram', below)
         if ram_usage > thresholds['high']:
+            self._low_streaks.pop((str(vm_id), 'ram'), None)
             if vm_manager.scale_ram('up'):
                 self.metrics.inc('vm_autoscale_scaling_actions_total',
                                  {'vm_id': str(vm_id), 'resource': 'ram',
@@ -550,7 +639,7 @@ class VMAutoscaler:
                 # Record for billing
                 if self.billing_tracker:
                     self._record_billing_spec(vm_manager, vm_id)
-        elif ram_usage < thresholds['low']:
+        elif sustained:
             if vm_manager.scale_ram('down'):
                 self.metrics.inc('vm_autoscale_scaling_actions_total',
                                  {'vm_id': str(vm_id), 'resource': 'ram',

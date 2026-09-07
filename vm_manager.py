@@ -29,6 +29,12 @@ class VMResourceManager:
         # When set, no command that changes the hypervisor is issued; the
         # service logs what it would have done instead.
         self.dry_run = bool(self.config.get("dry_run", False))
+        # `qm config` was executed three times inside a single scaling
+        # decision, because six separate readers each ran it. The cache is
+        # dropped by invalidate_cache() at the start of every cycle and after
+        # every mutation, so it never serves stale data across a change.
+        self._config_cache = None
+        self._running_cache = None
 
         self.ensure_hotplug_configured()
 
@@ -99,6 +105,17 @@ class VMResourceManager:
             return str(out).strip(), str(err).strip(), int(status)
         return (str(result).strip() if result is not None else ""), "", 0
 
+    def invalidate_cache(self):
+        """Drop everything cached for the previous cycle."""
+        self._config_cache = None
+        self._running_cache = None
+
+    def _vm_config_text(self):
+        """`qm config <vmid>` output, fetched at most once per cycle."""
+        if self._config_cache is None:
+            self._config_cache = self._run(f"qm config {self.vm_id}")
+        return self._config_cache
+
     def _run(self, command, check=True, mutating=False):
         """Run a command on the node and return its stdout.
 
@@ -114,6 +131,10 @@ class VMResourceManager:
             self.logger.info(f"[dry-run] VM {self.vm_id}: would run `{command}`")
             return ""
 
+        if mutating:
+            # Whatever we are about to change is in that cached text.
+            self._config_cache = None
+
         result = self.ssh_client.execute_command(command)
         output, error, status = self._unpack(result)
 
@@ -124,8 +145,14 @@ class VMResourceManager:
             )
         return output
 
-    def is_vm_running(self, retries=3, delay=5):
-        """Check if the VM is running with retries and improved error handling."""
+    def is_vm_running(self, retries=3, delay=5, use_cache=True):
+        """Check if the VM is running with retries and improved error handling.
+
+        Cached for the cycle: `process_vm` establishes the running state before
+        anything else, and the scaling helpers then asked again seconds later.
+        """
+        if use_cache and self._running_cache is not None:
+            return self._running_cache
         for attempt in range(1, retries + 1):
             try:
                 command = f"qm status {self.vm_id} --verbose"
@@ -146,9 +173,11 @@ class VMResourceManager:
 
                 if "status: running" in output_str.lower():
                     self.logger.info(f"VM {self.vm_id} is running.")
+                    self._running_cache = True
                     return True
                 elif "status:" in output_str.lower():
                     self.logger.info(f"VM {self.vm_id} is not running.")
+                    self._running_cache = False
                     return False
                 else:
                     self.logger.warning(
@@ -376,7 +405,7 @@ class VMResourceManager:
         default: a fabricated value would be fed straight into a scaling
         decision. `vcpus` is omitted from `qm config` when every core is online.
         """
-        output = self._run(f"qm config {self.vm_id}")
+        output = self._vm_config_text()
         match = re.search(r"vcpus:\s*(\d+)", output)
         return int(match.group(1)) if match else 1
 
@@ -387,7 +416,7 @@ class VMResourceManager:
         default: a fabricated value would be fed straight into a scaling
         decision. `cores` is omitted from `qm config` at the Proxmox default of 1.
         """
-        output = self._run(f"qm config {self.vm_id}")
+        output = self._vm_config_text()
         match = re.search(r"cores:\s*(\d+)", output)
         return int(match.group(1)) if match else 1
 
@@ -428,7 +457,7 @@ class VMResourceManager:
         default: a fabricated value would be fed straight into a scaling
         decision. `memory` is omitted from `qm config` at the Proxmox default of 512 MB.
         """
-        output = self._run(f"qm config {self.vm_id}")
+        output = self._vm_config_text()
         match = re.search(r"memory:\s*(\d+)", output)
         return int(match.group(1)) if match else 512
 
@@ -446,7 +475,7 @@ class VMResourceManager:
         Raises when `qm config` fails. Reporting "no hotplug" on a failed read
         would silently downgrade a live scale to a reboot-required one.
         """
-        output = self._run(f"qm config {self.vm_id}")
+        output = self._vm_config_text()
         hotplug_match = re.search(r"hotplug:\s*([^\n]+)", output)
         if not hotplug_match:
             # No hotplug line at all means hotplug is off.
@@ -456,13 +485,13 @@ class VMResourceManager:
 
     def _check_numa_enabled(self):
         """Whether NUMA is enabled on this VM (required for memory hotplug)."""
-        output = self._run(f"qm config {self.vm_id}")
+        output = self._vm_config_text()
         numa_match = re.search(r"numa:\s*(\d+)", output)
         return bool(numa_match) and int(numa_match.group(1)) == 1
 
     def _get_balloon_value(self):
         """Current balloon target in MB, or None when the key is absent."""
-        output = self._run(f"qm config {self.vm_id}")
+        output = self._vm_config_text()
         match = re.search(r"balloon:\s*(\d+)", output)
         return int(match.group(1)) if match else None
 

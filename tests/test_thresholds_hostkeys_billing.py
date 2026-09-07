@@ -23,8 +23,8 @@ import paramiko
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from metrics import build_registry
 from autoscale import VMAutoscaler
+from builders import make_autoscaler, valid_config
 from billing_tracker import (
     BillingTracker,
     SpecChangeRecord,
@@ -40,18 +40,9 @@ def make_logger():
     return logger
 
 
-def bare_autoscaler(config):
-    with patch.object(VMAutoscaler, "__init__", lambda s, *a, **kw: None):
-        a = VMAutoscaler.__new__(VMAutoscaler)
-    a.config = config
-    a.logger = make_logger()
-    a.notification_manager = MagicMock()
-    a.billing_tracker = None
-    a._vm_managers = {}
-    a._vm_states = {}
-    a.dry_run = False
-    a.metrics = build_registry()
-    return a
+def bare_autoscaler(test_case, **config_overrides):
+    """A real VMAutoscaler, built through its real constructor."""
+    return make_autoscaler(test_case, valid_config(**config_overrides))
 
 
 GLOBAL_THRESHOLDS = {
@@ -67,7 +58,7 @@ GLOBAL_THRESHOLDS = {
 class TestPerVMThresholds(unittest.TestCase):
 
     def _autoscaler(self):
-        return bare_autoscaler({"scaling_thresholds": GLOBAL_THRESHOLDS})
+        return bare_autoscaler(self)
 
     def test_falls_back_to_the_global_thresholds(self):
         a = self._autoscaler()
@@ -331,10 +322,8 @@ class TestReportSchedule(BillingTestCase):
 class TestAutoscalerDrivesBilling(BillingTestCase):
 
     def _autoscaler(self, tracker):
-        a = bare_autoscaler({
-            "scaling_thresholds": GLOBAL_THRESHOLDS,
-            "virtual_machines": [{"vm_id": "101"}, {"vm_id": "102"}],
-        })
+        a = bare_autoscaler(self)
+        a.config["virtual_machines"] = [{"vm_id": "101"}, {"vm_id": "102"}]
         a.billing_tracker = tracker
         return a
 
@@ -352,7 +341,8 @@ class TestAutoscalerDrivesBilling(BillingTestCase):
         )
 
     def test_nothing_is_recorded_when_billing_is_disabled(self):
-        a = bare_autoscaler({"scaling_thresholds": GLOBAL_THRESHOLDS})
+        a = bare_autoscaler(self)
+        a.billing_tracker = None
         a._record_vm_state("101", True)     # must not raise
 
     def test_reports_are_generated_when_the_period_is_due(self):
