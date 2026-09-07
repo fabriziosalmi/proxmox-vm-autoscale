@@ -78,7 +78,7 @@ sudo mv /var/log/vm_autoscale/billing/billing_data.json \
 sudo systemctl start vm_autoscale.service
 ```
 
-Timestamps are naive local time (`datetime.now()`), with no timezone and no DST handling. Reports spanning a DST boundary will be off by an hour.
+Timestamps are timezone-aware UTC. Records written before that change are naive on disk and are read as UTC, so old and new remain comparable.
 :::
 
 ## Generating a report out of band

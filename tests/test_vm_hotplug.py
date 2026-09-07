@@ -12,7 +12,7 @@ These tests verify:
 
 import os
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 # Add parent directory to path for imports
 import sys
@@ -23,15 +23,15 @@ from vm_manager import VMResourceManager
 
 class MockSSHClient:
     """Mock SSH client for testing."""
-    
+
     def __init__(self):
         self.commands = []
         self.responses = {}
-    
+
     def execute_command(self, command):
         self.commands.append(command)
         return self.responses.get(command, "")
-    
+
     def set_response(self, command, response):
         self.responses[command] = response
 
@@ -57,10 +57,10 @@ class TestHotplugDetection(unittest.TestCase):
             "qm config 101",
             "cores: 4\nmemory: 8192\nhotplug: cpu,memory,network,disk"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         cpu_hotplug, memory_hotplug = manager._check_hotplug_enabled()
-        
+
         self.assertTrue(cpu_hotplug)
         self.assertTrue(memory_hotplug)
 
@@ -70,10 +70,10 @@ class TestHotplugDetection(unittest.TestCase):
             "qm config 101",
             "cores: 4\nmemory: 8192\nhotplug: cpu,network,disk"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         cpu_hotplug, memory_hotplug = manager._check_hotplug_enabled()
-        
+
         self.assertTrue(cpu_hotplug)
         self.assertFalse(memory_hotplug)
 
@@ -83,10 +83,10 @@ class TestHotplugDetection(unittest.TestCase):
             "qm config 101",
             "cores: 4\nmemory: 8192\nhotplug: memory,network"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         cpu_hotplug, memory_hotplug = manager._check_hotplug_enabled()
-        
+
         self.assertFalse(cpu_hotplug)
         self.assertTrue(memory_hotplug)
 
@@ -96,10 +96,10 @@ class TestHotplugDetection(unittest.TestCase):
             "qm config 101",
             "cores: 4\nmemory: 8192\n"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         cpu_hotplug, memory_hotplug = manager._check_hotplug_enabled()
-        
+
         self.assertFalse(cpu_hotplug)
         self.assertFalse(memory_hotplug)
 
@@ -109,10 +109,10 @@ class TestHotplugDetection(unittest.TestCase):
             "qm config 101",
             "cores: 4\nmemory: 8192\nnuma: 1"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         numa_enabled = manager._check_numa_enabled()
-        
+
         self.assertTrue(numa_enabled)
 
     def test_check_numa_disabled(self):
@@ -121,10 +121,10 @@ class TestHotplugDetection(unittest.TestCase):
             "qm config 101",
             "cores: 4\nmemory: 8192\nnuma: 0"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         numa_enabled = manager._check_numa_enabled()
-        
+
         self.assertFalse(numa_enabled)
 
     def test_check_numa_not_configured(self):
@@ -133,10 +133,10 @@ class TestHotplugDetection(unittest.TestCase):
             "qm config 101",
             "cores: 4\nmemory: 8192"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         numa_enabled = manager._check_numa_enabled()
-        
+
         self.assertFalse(numa_enabled)
 
 
@@ -153,15 +153,15 @@ class TestAutoConfigureHotplug(unittest.TestCase):
             'auto_configure_hotplug': True,
             'scale_cooldown': 0
         }
-        
+
         # Mock VM config without hotplug or NUMA
         self.ssh_client.set_response(
             "qm config 101",
             "cores: 4\nmemory: 8192"
         )
-        
-        manager = VMResourceManager(self.ssh_client, "101", config)
-        
+
+        VMResourceManager(self.ssh_client, "101", config)   # constructed for its side effect
+
         # Should have called qm set to enable hotplug and NUMA
         commands = [c for c in self.ssh_client.commands if 'qm set' in c]
         self.assertTrue(any('-hotplug' in c for c in commands))
@@ -173,15 +173,15 @@ class TestAutoConfigureHotplug(unittest.TestCase):
             'auto_configure_hotplug': True,
             'scale_cooldown': 0
         }
-        
+
         # Mock VM config with hotplug and NUMA already enabled
         self.ssh_client.set_response(
             "qm config 101",
             "cores: 4\nmemory: 8192\nhotplug: cpu,memory,network,disk\nnuma: 1"
         )
-        
-        manager = VMResourceManager(self.ssh_client, "101", config)
-        
+
+        VMResourceManager(self.ssh_client, "101", config)   # constructed for its side effect
+
         # Should NOT have called qm set to modify settings
         set_commands = [c for c in self.ssh_client.commands if 'qm set' in c]
         self.assertEqual(len(set_commands), 0)
@@ -192,14 +192,14 @@ class TestAutoConfigureHotplug(unittest.TestCase):
             'auto_configure_hotplug': False,
             'scale_cooldown': 0
         }
-        
+
         self.ssh_client.set_response(
             "qm config 101",
             "cores: 4\nmemory: 8192"
         )
-        
-        manager = VMResourceManager(self.ssh_client, "101", config)
-        
+
+        VMResourceManager(self.ssh_client, "101", config)   # constructed for its side effect
+
         # Should NOT have called _ensure_hotplug_configured
         set_commands = [c for c in self.ssh_client.commands if 'qm set' in c]
         self.assertEqual(len(set_commands), 0)
@@ -229,15 +229,18 @@ class TestCPUScalingWithHotplug(unittest.TestCase):
             "qm status 101 --verbose",
             "status: running"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         manager._scale_cpu_up(current_cores=4, current_vcpus=2)
-        
+
         # Should set vcpus to 3, not increase cores
         vcpus_commands = [c for c in self.ssh_client.commands if '-vcpus' in c]
         cores_commands = [c for c in self.ssh_client.commands if '-cores' in c and 'qm set' in c]
-        
+
         self.assertTrue(any('3' in c for c in vcpus_commands))
+        # The other half of what this test claims to check: with vCPU headroom
+        # inside the existing core count, cores must not be touched at all.
+        self.assertEqual(cores_commands, [])
 
     def test_scale_cpu_down_with_hotplug(self):
         """Test CPU scale down uses vcpus for hotplug."""
@@ -249,10 +252,10 @@ class TestCPUScalingWithHotplug(unittest.TestCase):
             "qm status 101 --verbose",
             "status: running"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         manager._scale_cpu_down(current_cores=4, current_vcpus=4)
-        
+
         # Should reduce vcpus first
         vcpus_commands = [c for c in self.ssh_client.commands if '-vcpus' in c]
         self.assertTrue(any('3' in c for c in vcpus_commands))
@@ -267,14 +270,14 @@ class TestCPUScalingWithHotplug(unittest.TestCase):
             "qm status 101 --verbose",
             "status: running"
         )
-        
+
         with patch('logging.getLogger') as mock_logger:
             mock_log = MagicMock()
             mock_logger.return_value = mock_log
-            
+
             manager = VMResourceManager(self.ssh_client, "101", self.config)
             manager._scale_cpu_up(current_cores=2, current_vcpus=2)
-            
+
             # Check that warning was logged
             # Note: In actual test, would verify warning was logged
 
@@ -302,10 +305,10 @@ class TestRAMScalingWithHotplug(unittest.TestCase):
             "qm status 101 --verbose",
             "status: running"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         manager._set_ram(8192)
-        
+
         # Should use balloon for hotplug
         balloon_commands = [c for c in self.ssh_client.commands if '-balloon' in c]
         self.assertTrue(len(balloon_commands) > 0)
@@ -320,14 +323,14 @@ class TestRAMScalingWithHotplug(unittest.TestCase):
             "qm status 101 --verbose",
             "status: running"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         manager._set_ram(8192)
-        
+
         # Should use -memory, not -balloon
         memory_commands = [c for c in self.ssh_client.commands if '-memory' in c]
         balloon_commands = [c for c in self.ssh_client.commands if '-balloon' in c]
-        
+
         self.assertTrue(len(memory_commands) > 0)
         self.assertEqual(len(balloon_commands), 0)
 
@@ -341,10 +344,10 @@ class TestRAMScalingWithHotplug(unittest.TestCase):
             "qm status 101 --verbose",
             "status: stopped"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         manager._set_ram(8192)
-        
+
         # Should use -memory when VM is stopped
         memory_commands = [c for c in self.ssh_client.commands if '-memory' in c]
         self.assertTrue(len(memory_commands) > 0)
@@ -367,10 +370,10 @@ class TestVMRunningCheck(unittest.TestCase):
             "qm status 101 --verbose",
             "status: running\ncpuunits: 1024"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         result = manager.is_vm_running()
-        
+
         self.assertTrue(result)
 
     def test_is_vm_running_false(self):
@@ -379,10 +382,10 @@ class TestVMRunningCheck(unittest.TestCase):
             "qm status 101 --verbose",
             "status: stopped"
         )
-        
+
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         result = manager.is_vm_running()
-        
+
         self.assertFalse(result)
 
 

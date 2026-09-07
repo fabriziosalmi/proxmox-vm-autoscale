@@ -95,6 +95,24 @@ The gap between `low` and `high` is your only defence against oscillation. With 
 
 CPU is always evaluated before RAM. If CPU scaling raises an exception the service logs it and still proceeds to RAM.
 
+## Growing and shrinking are not symmetric
+
+Adding capacity fails safe. Reclaiming it does not: memory taken from a guest
+that is using it drives it into swap or to the OOM killer, and a vCPU unplug
+may be refused outright by the guest.
+
+A **scale-up acts on the first reading**. A **scale-down must be sustained** —
+`scale_down_after_cycles` consecutive readings below the low threshold, two by
+default. Any reading back inside the dead band resets the count:
+
+```
+[INFO] VM 101: cpu below its low threshold (1/2 consecutive readings).
+       Holding until it is sustained.
+```
+
+The streak lives in memory, so a restart clears it. That delays a shrink rather
+than causing one, which is the right direction to fail in.
+
 ## Step sizes
 
 Steps are fixed and not configurable:

@@ -16,11 +16,11 @@ import json
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from host_resource_checker import HostResourceChecker
+from host_resource_checker import HostResourceChecker, HostResourceUnavailable
 
 
 def make_ssh(output="", error="", exit_status=0):
@@ -128,13 +128,13 @@ class TestHostResourceCheckerEdgeCases(unittest.TestCase):
     def test_raises_on_command_error(self):
         ssh = make_ssh(output="", error="permission denied", exit_status=1)
         checker = HostResourceChecker(ssh)
-        with self.assertRaises(Exception):
+        with self.assertRaises(HostResourceUnavailable):
             checker.check_host_resources(80, 80)
 
     def test_raises_on_invalid_json(self):
         ssh = make_ssh(output="this is not json")
         checker = HostResourceChecker(ssh)
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):     # json.JSONDecodeError
             checker.check_host_resources(80, 80)
 
     def test_raises_on_missing_cpu_key(self):

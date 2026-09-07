@@ -46,6 +46,8 @@ With hotplug and NUMA enabled on a guest, vCPU and balloon memory changes apply 
 bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autoscale/main/install.sh)
 ```
 
+This installs the **latest release tag**. Set `VM_AUTOSCALE_REF=main` to install the development branch instead.
+
 > [!CAUTION]
 > This pipes a remote script into a root shell, unsigned and unverified. Read it first, or follow the [manual install](https://fabriziosalmi.github.io/proxmox-vm-autoscale/guide/installation.html#option-b-manual-install).
 
@@ -87,6 +89,8 @@ host_limits:
   max_host_cpu_percent: 90
   max_host_ram_percent: 90
 ```
+
+The whole file is validated at startup — types, ranges, referential integrity — and the service refuses to start on a bad one, listing every problem at once rather than the first. An unknown key is a warning, so a typo is reported instead of silently doing nothing.
 
 Gotify and SMTP notifications, billing tracking and hotplug auto-configuration are optional. The [configuration reference](https://fabriziosalmi.github.io/proxmox-vm-autoscale/reference/configuration.html) covers every key and what the code actually does with it.
 

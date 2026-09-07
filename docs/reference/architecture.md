@@ -105,6 +105,18 @@ It is also a context manager, though `process_vm` uses explicit `connect()` / `c
 
 One method. Runs `pvesh get /nodes/$(hostname)/status --output-format json`, parses it, compares against the two ceilings, returns a boolean. Raises on JSON errors and missing fields — which surfaces as a per-VM `Error processing VM ...` rather than stopping the service.
 
+### `config_schema.py`
+
+The configuration contract. Validates types, ranges, enumerations, cross-field
+consistency and referential integrity once at startup, reports every problem at
+once, and treats `vm_id` as dangerous because it reaches a shell running as
+root. Unknown keys are warnings, so a config from a newer version still boots.
+
+### `version.py`
+
+The single source of truth for the release version, logged at startup and
+carried as a label on `vm_autoscale_build_info`.
+
 ### `metrics.py`
 
 A small Prometheus registry and an HTTP endpoint served from a daemon thread,
@@ -165,7 +177,7 @@ Realistic places to add behaviour without restructuring:
 
 ## Tests
 
-`tests/` holds 201 unit tests across nine files, run with `pytest`. SSH is mocked throughout, so there is no integration test against a real Proxmox node — but metrics now come from `pvesh --output-format json`, and the tests exercise that parsing against realistic payloads rather than a scraped table.
+`tests/` holds 290 unit tests across eleven files, run with `pytest`. SSH is mocked throughout, so there is still no integration test against a real Proxmox node. Tests build a real `VMAutoscaler` through its real constructor rather than assembling one attribute by attribute, so the wiring and the configuration contract are exercised on every call.
 
 ```bash
 python3 -m pytest tests/ -q

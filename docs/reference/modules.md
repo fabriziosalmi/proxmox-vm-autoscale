@@ -166,6 +166,7 @@ Creates `csv_output_dir` and loads `billing_data.json` on construction.
 | Method | Signature | Called by the service? |
 |---|---|---|
 | `record_spec_change` | `(vm_id, cpu_cores, ram_mb, timestamp=None) -> None` | **Yes**, after each scaling action |
+| `_webhook_script_is_safe` | `() -> bool` | Refuses a webhook script writable by group or others |
 | `record_vm_state_change` | `(vm_id, state: "started" \| "stopped", timestamp=None) -> None` | **Yes**, on transitions only |
 | `is_period_due` | `(now=None) -> bool` | **Yes**, once per cycle; the first call starts the clock |
 | `generate_period_report` | `(vm_id) -> Optional[BillingReport]` | **Yes**, when a period elapses |

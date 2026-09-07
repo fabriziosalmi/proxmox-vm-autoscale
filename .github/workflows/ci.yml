@@ -21,9 +21,62 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest
-      - name: Run tests
-        run: pytest -q
+          pip install -r requirements.txt pytest coverage
+      - name: Run tests with a coverage floor
+        # The floor lives in pyproject.toml. It exists to stop erosion, not to
+        # certify the number as good.
+        run: |
+          coverage run -m pytest -q
+          coverage report
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint
+        run: ruff check .
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: pip install pip-audit
+      # SECURITY.md tells contributors to run this; CI never did.
+      - name: Audit runtime dependencies
+        run: pip-audit --requirement requirements.txt --strict
+
+  config:
+    name: shipped config validates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      # The file users are told to edit must pass its own validator, and the
+      # version constant must match the tag it will be released under.
+      - name: Validate config.yaml
+        run: |
+          python -c "
+          import yaml, sys
+          from config_schema import validate
+          warnings = validate(yaml.safe_load(open('config.yaml')))
+          for w in warnings:
+              print('WARNING:', w)
+          print('config.yaml is valid')
+          "
 
   shellcheck:
     name: shellcheck install.sh

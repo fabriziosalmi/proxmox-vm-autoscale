@@ -14,7 +14,7 @@ Put it behind something that authenticates if it needs to leave the host.
 import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
@@ -33,7 +33,7 @@ def _escape_label(value: Any) -> str:
     )
 
 
-def _format_labels(labels: Tuple[Tuple[str, str], ...]) -> str:
+def _format_labels(labels: tuple[tuple[str, str], ...]) -> str:
     if not labels:
         return ""
     inner = ",".join(f'{name}="{_escape_label(value)}"' for name, value in labels)
@@ -51,32 +51,32 @@ class MetricsRegistry:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._counters: Dict[Tuple[str, Tuple[Tuple[str, str], ...]], float] = {}
-        self._gauges: Dict[Tuple[str, Tuple[Tuple[str, str], ...]], float] = {}
-        self._help: Dict[str, Tuple[str, str]] = {}
+        self._counters: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
+        self._gauges: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
+        self._help: dict[str, tuple[str, str]] = {}
 
     def describe(self, name: str, kind: str, help_text: str) -> None:
         with self._lock:
             self._help[name] = (kind, help_text)
 
     @staticmethod
-    def _key(name: str, labels: Optional[Dict[str, Any]]):
+    def _key(name: str, labels: dict[str, Any] | None):
         items = tuple(sorted((k, str(v)) for k, v in (labels or {}).items()))
         return name, items
 
-    def inc(self, name: str, labels: Optional[Dict[str, Any]] = None,
+    def inc(self, name: str, labels: dict[str, Any] | None = None,
             amount: float = 1.0) -> None:
         key = self._key(name, labels)
         with self._lock:
             self._counters[key] = self._counters.get(key, 0.0) + amount
 
     def set(self, name: str, value: float,
-            labels: Optional[Dict[str, Any]] = None) -> None:
+            labels: dict[str, Any] | None = None) -> None:
         key = self._key(name, labels)
         with self._lock:
             self._gauges[key] = float(value)
 
-    def unset(self, name: str, labels: Optional[Dict[str, Any]] = None) -> None:
+    def unset(self, name: str, labels: dict[str, Any] | None = None) -> None:
         """Drop a gauge series, for a VM that no longer reports a value."""
         key = self._key(name, labels)
         with self._lock:
@@ -89,7 +89,7 @@ class MetricsRegistry:
             gauges = dict(self._gauges)
             help_text = dict(self._help)
 
-        by_name: Dict[str, list] = {}
+        by_name: dict[str, list] = {}
         for (name, labels), value in counters.items():
             by_name.setdefault(name, []).append((labels, value))
         for (name, labels), value in gauges.items():
@@ -112,7 +112,7 @@ class _Handler(BaseHTTPRequestHandler):
     metrics_path: str = DEFAULT_PATH
     logger: logging.Logger
 
-    def do_GET(self):  # noqa: N802 - name fixed by BaseHTTPRequestHandler
+    def do_GET(self):
         if self.path.split("?", 1)[0] != self.metrics_path:
             self.send_response(404)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -151,8 +151,8 @@ class MetricsServer:
         self.bind = bind
         self.port = port
         self.path = path if path.startswith("/") else "/" + path
-        self._server: Optional[ThreadingHTTPServer] = None
-        self._thread: Optional[threading.Thread] = None
+        self._server: ThreadingHTTPServer | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> bool:
         """Start serving. Returns False if the endpoint could not be bound.
@@ -201,7 +201,9 @@ def build_registry() -> MetricsRegistry:
     r.describe("vm_autoscale_up", "gauge",
                "1 when the autoscaler is running.")
     r.describe("vm_autoscale_build_info", "gauge",
-               "Build information; the value is always 1.")
+               "Version and mode of the running service; the value is always 1.")
+    r.describe("vm_autoscale_billing_degraded", "gauge",
+               "1 when billing was disabled because its history was unreadable.")
     r.describe("vm_autoscale_cycles_total", "counter",
                "Polling cycles completed since start.")
     r.describe("vm_autoscale_cycle_duration_seconds", "gauge",

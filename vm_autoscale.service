@@ -11,5 +11,13 @@ RestartSec=10
 User=root
 Environment=PYTHONUNBUFFERED=1
 
+# The service handles SIGTERM: it finishes the VM it is on, stops the metrics
+# endpoint and leaves the billing state file intact. Give it room to do that
+# rather than SIGKILLing it mid-write.
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=45
+SendSIGKILL=yes
+
 [Install]
 WantedBy=multi-user.target

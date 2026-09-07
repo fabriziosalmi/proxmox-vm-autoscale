@@ -17,7 +17,7 @@ sudo systemctl enable  vm_autoscale.service   # start at boot
 sudo systemctl disable vm_autoscale.service
 ```
 
-The unit sets `Restart=always` with `RestartSec=10`, so systemd brings the process back ten seconds after a crash rather than hammering it. Confirm what is actually installed:
+The unit sets `Restart=always` with `RestartSec=10`, so systemd brings the process back ten seconds after a crash rather than hammering it. It also sets `TimeoutStopSec=45`: the service handles `SIGTERM`, finishes the VM it is on, stops the metrics endpoint and leaves the billing state file intact, so it needs room to do that rather than being killed mid-write. Confirm what is actually installed:
 
 ```bash
 systemctl cat vm_autoscale.service | grep -E 'Restart|ExecStart'
@@ -103,7 +103,21 @@ No action is taken on a metric that could not be read — the earlier behaviour 
 
 ## Changing configuration
 
-Config is read once at startup. There is no reload signal.
+Config is read once at startup and **fully validated** before anything runs.
+There is no reload signal.
+
+A broken configuration is refused with every problem listed at once:
+
+```
+CRITICAL Refusing to start. 2 configuration problem(s) found:
+  - virtual_machines[0].proxmox_host: 'pve-typo' does not match any
+    proxmox_hosts name (pve1)
+  - scaling_limits.min_cores: 16 is above max_cores (8)
+```
+
+Suspicious-but-usable settings are logged as warnings and the service starts
+anyway — an unknown key, a dead band narrow enough to flap, a `scale_cooldown`
+below `check_interval`, a metrics endpoint bound off localhost.
 
 ```bash
 sudo cp /usr/local/bin/vm_autoscale/config.yaml /root/config.yaml.bak
