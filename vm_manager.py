@@ -53,22 +53,22 @@ class VMResourceManager:
         try:
             cpu_hotplug, memory_hotplug = self._check_hotplug_enabled()
             numa_enabled = self._check_numa_enabled()
-            
+
             needs_update = False
             updates = []
-            
+
             # Check if we need to enable hotplug for CPU/memory
             if not cpu_hotplug or not memory_hotplug:
                 updates.append("-hotplug cpu,memory,network,disk,usb")
                 needs_update = True
                 self.logger.info(f"VM {self.vm_id}: Enabling hotplug for cpu,memory,network,disk,usb")
-            
+
             # Check if we need to enable NUMA (required for memory hotplug)
             if not numa_enabled:
                 updates.append("-numa 1")
                 needs_update = True
                 self.logger.info(f"VM {self.vm_id}: Enabling NUMA for memory hotplug support")
-            
+
             if needs_update:
                 self._run(f"qm set {self.vm_id} {' '.join(updates)}", mutating=True)
                 self.logger.info(
@@ -188,7 +188,7 @@ class VMResourceManager:
                     f"Attempt {attempt}/{retries} failed to check VM status: {e}. Retrying..."
                 )
                 time.sleep(delay * attempt)  # Exponential backoff
-        
+
         self.logger.error(
             f"Unable to determine status of VM {self.vm_id} after {retries} attempts."
         )
@@ -501,7 +501,7 @@ class VMResourceManager:
             is_running = self.is_vm_running()
             _, memory_hotplug = self._check_hotplug_enabled()
             numa_enabled = self._check_numa_enabled()
-            
+
             if is_running and memory_hotplug and numa_enabled:
                 # Use balloon for immediate effect on running VMs with hotplug
                 self._run(f"qm set {self.vm_id} -balloon {ram}", mutating=True)
@@ -534,7 +534,7 @@ class VMResourceManager:
         """Helper method to scale CPU up, using hotplug when available."""
         is_running = self.is_vm_running()
         cpu_hotplug, _ = self._check_hotplug_enabled()
-        
+
         if is_running and cpu_hotplug:
             # For hotplug: prefer adjusting vcpus within current cores limit
             if current_vcpus < current_cores:
@@ -573,13 +573,13 @@ class VMResourceManager:
         """Helper method to scale CPU down, using hotplug when available."""
         is_running = self.is_vm_running()
         cpu_hotplug, _ = self._check_hotplug_enabled()
-        
+
         if is_running and cpu_hotplug:
             # For hotplug: reduce vcpus first (immediate effect)
             new_vcpus = max(current_vcpus - 1, 1)
             self._set_vcpus(new_vcpus)
             self.logger.info(f"Scaled down vCPUs to {new_vcpus} for VM {self.vm_id} (hotplug applied).")
-            
+
             # Optionally reduce cores if vcpus is significantly lower
             # (cores change requires reboot, so we only do it when it makes sense)
             new_cores = current_cores - 1

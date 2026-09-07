@@ -19,8 +19,7 @@ from host_resource_checker import HostResourceChecker
 from billing_tracker import BillingDataError, BillingTracker
 from metrics import MetricsServer, build_registry
 from version import __version__
-from functools import wraps
-from typing import Union, List, Optional, Dict, Any, Tuple
+from typing import Any
 
 class ConfigurationError(Exception):
     """Custom exception for configuration-related errors."""
@@ -33,13 +32,13 @@ class NotificationManager:
     #: the real alert is somewhere underneath them.
     DEFAULT_DEDUP_WINDOW = 900
 
-    def __init__(self, config: Dict[str, Any], logger: logging.Logger):
+    def __init__(self, config: dict[str, Any], logger: logging.Logger):
         self.config = config
         self.logger = logger
         self.dedup_window = config.get('notification_dedup_seconds',
                                        self.DEFAULT_DEDUP_WINDOW)
-        self._last_sent: Dict[str, float] = {}
-        self._suppressed: Dict[str, int] = {}
+        self._last_sent: dict[str, float] = {}
+        self._suppressed: dict[str, int] = {}
         self.validate_notification_config()
 
     def _dedup_key(self, message: str) -> str:
@@ -80,13 +79,13 @@ class NotificationManager:
     def validate_notification_config(self) -> None:
         """Validate notification configuration at startup."""
         notification_enabled = False
-        
+
         if self.config.get('gotify', {}).get('enabled', False):
             notification_enabled = True
             gotify_config = self.config.get('gotify', {})
             if not all([gotify_config.get('server_url'), gotify_config.get('app_token')]):
                 raise ConfigurationError("Gotify is enabled but configuration is incomplete")
-        
+
         if self.config.get('alerts', {}).get('email_enabled', False):
             notification_enabled = True
             alerts_config = self.config.get('alerts', {})
@@ -98,7 +97,7 @@ class NotificationManager:
         if not notification_enabled:
             self.logger.warning("No notification method is enabled in configuration")
 
-    def _format_message(self, message: Union[str, tuple, Any]) -> str:
+    def _format_message(self, message: str | tuple | Any) -> str:
         """Format message to ensure it's a string."""
         if isinstance(message, tuple):
             # If it's a tuple, join non-empty parts
@@ -108,7 +107,7 @@ class NotificationManager:
         else:
             return str(message)
 
-    def send_gotify_notification(self, message: str, priority: Optional[int] = None) -> None:
+    def send_gotify_notification(self, message: str, priority: int | None = None) -> None:
         """Send notification via Gotify with retry logic."""
         try:
             gotify_config = self.config.get('gotify', {})
@@ -131,7 +130,7 @@ class NotificationManager:
             response.raise_for_status()
             self.logger.info("Gotify notification sent successfully")
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Failed to send Gotify notification: {str(e)}")
+            self.logger.error(f"Failed to send Gotify notification: {e!s}")
             raise
 
     def send_smtp_notification(self, message: str) -> None:
@@ -153,10 +152,7 @@ class NotificationManager:
             # Updated regex to capture the VM number
             pattern = r"VM\s+(\d+)"
             result = re.search(pattern, formatted_message)
-            if result:
-                vm_id = result.group(1)
-            else:
-                vm_id = ""
+            vm_id = result.group(1) if result else ""
             msg = MIMEMultipart()
             msg['From'] = smtp_config['user']
             msg['To'] = ", ".join(to_emails)
@@ -168,13 +164,13 @@ class NotificationManager:
                 if smtp_config['password']:
                     server.login(smtp_config['user'], smtp_config['password'])
                 server.sendmail(smtp_config['user'], to_emails, msg.as_string())
-            
+
             self.logger.info("Email notification sent successfully")
         except Exception as e:
-            self.logger.error(f"Failed to send email notification: {str(e)}")
+            self.logger.error(f"Failed to send email notification: {e!s}")
             raise
 
-    def send_notification(self, message: Union[str, tuple, Any], priority: Optional[int] = None) -> None:
+    def send_notification(self, message: str | tuple | Any, priority: int | None = None) -> None:
         """Send notification through configured channels."""
         sent = False
         errors = []
@@ -190,7 +186,7 @@ class NotificationManager:
                 self.send_gotify_notification(formatted_message, priority)
                 sent = True
             except Exception as e:
-                error_msg = f"Failed to send Gotify notification: {str(e)}"
+                error_msg = f"Failed to send Gotify notification: {e!s}"
                 errors.append(error_msg)
                 self.logger.error(error_msg)
 
@@ -199,7 +195,7 @@ class NotificationManager:
                 self.send_smtp_notification(formatted_message)
                 sent = True
             except Exception as e:
-                error_msg = f"Failed to send email notification: {str(e)}"
+                error_msg = f"Failed to send email notification: {e!s}"
                 errors.append(error_msg)
                 self.logger.error(error_msg)
 
@@ -210,7 +206,7 @@ class NotificationManager:
             )
 
 class VMAutoscaler:
-    def __init__(self, config_path: str, logging_config_path: Optional[str] = None):
+    def __init__(self, config_path: str, logging_config_path: str | None = None):
         self.config = self._load_config(config_path)
         self.logger = self._setup_logging(logging_config_path)
         self._report_config_warnings()
@@ -218,14 +214,14 @@ class VMAutoscaler:
         # VMResourceManager instances are reused across polling cycles so the
         # scaling cooldown survives between iterations of the main loop, and so
         # hotplug auto-configuration runs once per VM instead of every cycle.
-        self._vm_managers: Dict[str, VMResourceManager] = {}
+        self._vm_managers: dict[str, VMResourceManager] = {}
         # Last observed running state per VM, so billing records transitions
         # rather than one entry per poll.
-        self._vm_states: Dict[str, bool] = {}
+        self._vm_states: dict[str, bool] = {}
         # Consecutive observations below the low threshold, per VM and
         # resource. Growing is fail-safe and acts at once; shrinking can drive
         # a guest into swap or refuse a vCPU unplug, so it has to be earned.
-        self._low_streaks: Dict[Tuple[str, str], int] = {}
+        self._low_streaks: dict[tuple[str, str], int] = {}
         self.scale_down_after = int(self.config.get('scale_down_after_cycles', 2))
         self.dry_run = bool(self.config.get('dry_run', False))
         self.metrics = build_registry()
@@ -238,7 +234,7 @@ class VMAutoscaler:
                 "DRY RUN: no command that changes a VM will be issued. "
                 "Scaling decisions are logged as they would be taken."
             )
-        
+
         # Set by SIGTERM/SIGINT so the loop can stop between VMs instead of
         # being killed wherever it happens to be - which, with no handler at
         # all, meant every `systemctl stop` was an abrupt kill.
@@ -284,12 +280,12 @@ class VMAutoscaler:
                 self.logger.debug(f"Could not install a handler for {sig!r}.")
 
     @staticmethod
-    def _load_config(config_path: str) -> Dict[str, Any]:
+    def _load_config(config_path: str) -> dict[str, Any]:
         """Load and validate configuration file."""
         if not Path(config_path).exists():
             raise FileNotFoundError(f"Configuration file not found at {config_path}")
-        
-        with open(config_path, 'r') as config_file:
+
+        with open(config_path) as config_file:
             config = yaml.safe_load(config_file)
 
         # Full validation: types, ranges, unknown keys, referential integrity.
@@ -305,10 +301,10 @@ class VMAutoscaler:
         for warning in self.config.pop('_validation_warnings', []):
             self.logger.warning(f"Configuration: {warning}")
 
-    def _setup_logging(self, logging_config_path: Optional[str]) -> logging.Logger:
+    def _setup_logging(self, logging_config_path: str | None) -> logging.Logger:
         """Setup logging configuration."""
         if logging_config_path and Path(logging_config_path).exists():
-            with open(logging_config_path, 'r') as logging_file:
+            with open(logging_config_path) as logging_file:
                 logging_config = json.load(logging_file)
                 logging.config.dictConfig(logging_config)
         else:
@@ -322,101 +318,36 @@ class VMAutoscaler:
             )
         return logging.getLogger("vm_autoscale")
 
-    def process_vm(self, host: Dict[str, Any], vm: Dict[str, Any]) -> None:
-        """Process a single VM for autoscaling."""
+    def process_vm(self, host: dict[str, Any], vm: dict[str, Any]) -> None:
+        """Evaluate and, if warranted, resize one VM.
+
+        Kept to the shape of the decision - connect, gate, read, act - with the
+        detail of each step in its own method. This was one 95-line block
+        interleaving SSH lifecycle, two gates, metrics emission, billing state,
+        threshold resolution and two near-identical scaling branches.
+        """
         ssh_client = None
         try:
-            ssh_client = SSHClient(
-                host=host['host'],
-                port=host.get('ssh_port', 22),
-                user=host['ssh_user'],
-                password=host.get('ssh_password'),
-                key_path=host.get('ssh_key'),
-                host_key_policy=self.config.get('ssh_host_key_policy', 'accept-new'),
-                known_hosts=self.config.get('ssh_known_hosts', DEFAULT_KNOWN_HOSTS),
-            )
-            ssh_client.connect()
-
+            ssh_client = self._connect(host)
             vm_manager = self._get_vm_manager(ssh_client, vm)
             # Fresh connection, fresh cycle: nothing carried over from last time.
             vm_manager.invalidate_cache()
 
-            # First check if VM is running
-            running = vm_manager.is_vm_running()
-            self.metrics.set('vm_autoscale_vm_running', 1 if running else 0,
-                             {'vm_id': str(vm['vm_id'])})
-            self._record_vm_state(vm['vm_id'], running)
-            if not running:
-                self.logger.info(f"VM {vm['vm_id']} is not running. Skipping scaling.")
+            if not self._guest_is_running(vm, vm_manager):
+                return
+            if not self._host_has_headroom(host, ssh_client):
                 return
 
-            # Check host resources first
-            host_checker = HostResourceChecker(ssh_client)
-            within_limits = host_checker.check_host_resources(
-                self.config['host_limits']['max_host_cpu_percent'],
-                self.config['host_limits']['max_host_ram_percent'])
-            self._record_host_metrics(host['name'], host_checker)
-            if not within_limits:
-                self.metrics.inc('vm_autoscale_host_gate_blocked_total',
-                                 {'host': host['name']})
-                self.logger.warning(f"Host {host['name']} resources maxed out. Skipping scaling.")
-                return
-
-            # Get current resource usage once to avoid multiple calls.
-            # Either figure is None when it could not be read; that is not the
-            # same as zero, and must never be fed to a scaling decision.
-            current_cpu_usage, current_ram_usage = vm_manager.get_resource_usage()
-            self.logger.info(
-                f"VM {vm['vm_id']} current usage - "
-                f"CPU: {self._format_usage(current_cpu_usage)}, "
-                f"RAM: {self._format_usage(current_ram_usage)}"
-            )
-
-            self._record_usage_metrics(vm['vm_id'], current_cpu_usage, current_ram_usage)
-
-            if current_cpu_usage is None and current_ram_usage is None:
+            cpu_usage, ram_usage = self._read_usage(vm, vm_manager)
+            if cpu_usage is None and ram_usage is None:
                 self.logger.warning(
                     f"VM {vm['vm_id']}: no usage metrics available this cycle. "
                     "Skipping scaling rather than treating the VM as idle."
                 )
                 return
 
-            # Handle CPU scaling if enabled
-            if vm.get('cpu_scaling', False):
-                if current_cpu_usage is None:
-                    self.logger.warning(
-                        f"VM {vm['vm_id']}: CPU usage unavailable; skipping CPU scaling."
-                    )
-                else:
-                    try:
-                        self._handle_cpu_scaling(
-                            vm_manager, vm['vm_id'], current_cpu_usage,
-                            self._thresholds_for(vm, 'cpu'),
-                        )
-                        self.logger.debug(f"CPU scaling completed for VM {vm['vm_id']}")
-                    except Exception as e:
-                        self.metrics.inc('vm_autoscale_scaling_failures_total',
-                                         {'vm_id': str(vm['vm_id']), 'resource': 'cpu'})
-                        self.logger.error(f"CPU scaling failed for VM {vm['vm_id']}: {str(e)}")
-                        # Continue to RAM scaling even if CPU scaling fails
-
-            # Handle RAM scaling if enabled
-            if vm.get('ram_scaling', False):
-                if current_ram_usage is None:
-                    self.logger.warning(
-                        f"VM {vm['vm_id']}: RAM usage unavailable; skipping RAM scaling."
-                    )
-                else:
-                    try:
-                        self._handle_ram_scaling(
-                            vm_manager, vm['vm_id'], current_ram_usage,
-                            self._thresholds_for(vm, 'ram'),
-                        )
-                        self.logger.debug(f"RAM scaling completed for VM {vm['vm_id']}")
-                    except Exception as e:
-                        self.metrics.inc('vm_autoscale_scaling_failures_total',
-                                         {'vm_id': str(vm['vm_id']), 'resource': 'ram'})
-                        self.logger.error(f"RAM scaling failed for VM {vm['vm_id']}: {str(e)}")
+            self._apply_scaling(vm, vm_manager, 'cpu', cpu_usage)
+            self._apply_scaling(vm, vm_manager, 'ram', ram_usage)
 
         except Exception as e:
             self.metrics.inc('vm_autoscale_vm_errors_total', {'vm_id': str(vm['vm_id'])})
@@ -429,7 +360,87 @@ class VMAutoscaler:
             if ssh_client:
                 ssh_client.close()
 
-    def _start_metrics_server(self) -> Optional[MetricsServer]:
+    def _connect(self, host: dict[str, Any]) -> SSHClient:
+        """Open an SSH connection to one node."""
+        ssh_client = SSHClient(
+            host=host['host'],
+            port=host.get('ssh_port', 22),
+            user=host['ssh_user'],
+            password=host.get('ssh_password'),
+            key_path=host.get('ssh_key'),
+            host_key_policy=self.config.get('ssh_host_key_policy', 'accept-new'),
+            known_hosts=self.config.get('ssh_known_hosts', DEFAULT_KNOWN_HOSTS),
+        )
+        ssh_client.connect()
+        return ssh_client
+
+    def _guest_is_running(self, vm: dict[str, Any],
+                          vm_manager: VMResourceManager) -> bool:
+        """Gate 1, and the point at which billing learns about a transition."""
+        running = vm_manager.is_vm_running()
+        self.metrics.set('vm_autoscale_vm_running', 1 if running else 0,
+                         {'vm_id': str(vm['vm_id'])})
+        self._record_vm_state(vm['vm_id'], running)
+        if not running:
+            self.logger.info(f"VM {vm['vm_id']} is not running. Skipping scaling.")
+        return running
+
+    def _host_has_headroom(self, host: dict[str, Any], ssh_client: SSHClient) -> bool:
+        """Gate 2: never push a node that is already at its ceiling."""
+        host_checker = HostResourceChecker(ssh_client)
+        within_limits = host_checker.check_host_resources(
+            self.config['host_limits']['max_host_cpu_percent'],
+            self.config['host_limits']['max_host_ram_percent'])
+        self._record_host_metrics(host['name'], host_checker)
+
+        if not within_limits:
+            self.metrics.inc('vm_autoscale_host_gate_blocked_total',
+                             {'host': host['name']})
+            self.logger.warning(
+                f"Host {host['name']} resources maxed out. Skipping scaling.")
+        return within_limits
+
+    def _read_usage(self, vm: dict[str, Any], vm_manager: VMResourceManager):
+        """Current CPU and RAM usage. Either may be None, which is not zero."""
+        cpu_usage, ram_usage = vm_manager.get_resource_usage()
+        self.logger.info(
+            f"VM {vm['vm_id']} current usage - "
+            f"CPU: {self._format_usage(cpu_usage)}, "
+            f"RAM: {self._format_usage(ram_usage)}"
+        )
+        self._record_usage_metrics(vm['vm_id'], cpu_usage, ram_usage)
+        return cpu_usage, ram_usage
+
+    def _apply_scaling(self, vm: dict[str, Any], vm_manager: VMResourceManager,
+                       resource: str, usage: float | None) -> None:
+        """Evaluate one resource. CPU and RAM differ only in their names here.
+
+        A failure on one resource is logged and counted but does not stop the
+        other from being evaluated.
+        """
+        if not vm.get(f'{resource}_scaling', False):
+            return
+
+        if usage is None:
+            self.logger.warning(
+                f"VM {vm['vm_id']}: {resource.upper()} usage unavailable; "
+                f"skipping {resource.upper()} scaling."
+            )
+            return
+
+        handler = (self._handle_cpu_scaling if resource == 'cpu'
+                   else self._handle_ram_scaling)
+        try:
+            handler(vm_manager, vm['vm_id'], usage, self._thresholds_for(vm, resource))
+            self.logger.debug(
+                f"{resource.upper()} scaling completed for VM {vm['vm_id']}")
+        except Exception as e:
+            self.metrics.inc('vm_autoscale_scaling_failures_total',
+                             {'vm_id': str(vm['vm_id']), 'resource': resource})
+            self.logger.error(
+                f"{resource.upper()} scaling failed for VM {vm['vm_id']}: {e!s}")
+
+    def _start_metrics_server(self) -> MetricsServer | None:
         """Start the Prometheus endpoint when it is enabled in the config.
 
         Off by default, and bound to localhost when on: this process holds root
@@ -500,7 +511,7 @@ class VMAutoscaler:
         self._low_streaks.pop(key, None)
         return True
 
-    def _thresholds_for(self, vm: Dict[str, Any], resource: str) -> Dict[str, float]:
+    def _thresholds_for(self, vm: dict[str, Any], resource: str) -> dict[str, float]:
         """Resolve the high/low thresholds for one VM and one resource.
 
         Falls back to the global `scaling_thresholds` section. A VM may override
@@ -557,8 +568,8 @@ class VMAutoscaler:
             self.metrics.set('vm_autoscale_host_ram_percent',
                              checker.last_ram_percent, {'host': host_name})
 
-    def _record_usage_metrics(self, vm_id: Any, cpu: Optional[float],
-                              ram: Optional[float]) -> None:
+    def _record_usage_metrics(self, vm_id: Any, cpu: float | None,
+                              ram: float | None) -> None:
         """Publish guest usage, dropping the series when it is unreadable.
 
         An absent series is not the same as a zero one. Emitting 0 for a metric
@@ -578,13 +589,13 @@ class VMAutoscaler:
                 self.metrics.set(name, value, labels)
 
     @staticmethod
-    def _format_usage(value: Optional[float]) -> str:
+    def _format_usage(value: float | None) -> str:
         """Render a usage figure for the log, distinguishing unknown from zero."""
         return "unavailable" if value is None else f"{value:.2f}%"
 
     def _handle_cpu_scaling(self, vm_manager: VMResourceManager, vm_id: int,
-                            cpu_usage: Optional[float],
-                            thresholds: Optional[Dict[str, float]] = None) -> None:
+                            cpu_usage: float | None,
+                            thresholds: dict[str, float] | None = None) -> None:
         """Handle CPU scaling decisions. A None reading is never acted on."""
         if cpu_usage is None:
             return
@@ -618,8 +629,8 @@ class VMAutoscaler:
                     self._record_billing_spec(vm_manager, vm_id)
 
     def _handle_ram_scaling(self, vm_manager: VMResourceManager, vm_id: int,
-                            ram_usage: Optional[float],
-                            thresholds: Optional[Dict[str, float]] = None) -> None:
+                            ram_usage: float | None,
+                            thresholds: dict[str, float] | None = None) -> None:
         """Handle RAM scaling decisions. A None reading is never acted on."""
         if ram_usage is None:
             return

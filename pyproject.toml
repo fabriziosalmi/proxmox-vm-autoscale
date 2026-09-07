@@ -1,0 +1,91 @@
+# Packaging metadata. The project had none: not installable with pip, not
+# packageable as a .deb, no declared entry point, and dependencies expressed
+# only as lower bounds in requirements.txt with no upper bounds at all.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proxmox-vm-autoscale"
+description = "Threshold-based CPU and RAM autoscaling for Proxmox VE virtual machines"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Fabrizio Salmi", email = "fabrizio.salmi@gmail.com" }]
+keywords = ["proxmox", "autoscale", "virtualization", "infrastructure"]
+dynamic = ["version"]
+
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: No Input/Output (Daemon)",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: System :: Systems Administration",
+]
+
+# Upper bounds are deliberate: paramiko 5 changed key loading, and this service
+# runs as root against hypervisors. A surprise major is not a surprise worth
+# having.
+dependencies = [
+  "paramiko>=5.0.0,<6",
+  "PyYAML>=6.0.3,<7",
+  "requests>=2.34.2,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "coverage>=7", "ruff>=0.6", "pip-audit>=2.7"]
+
+[project.urls]
+Homepage = "https://fabriziosalmi.github.io/proxmox-vm-autoscale/"
+Documentation = "https://fabriziosalmi.github.io/proxmox-vm-autoscale/"
+Source = "https://github.com/fabriziosalmi/proxmox-vm-autoscale"
+Changelog = "https://github.com/fabriziosalmi/proxmox-vm-autoscale/blob/main/CHANGELOG.md"
+
+[project.scripts]
+vm-autoscale = "autoscale:main"
+
+[tool.setuptools]
+py-modules = [
+  "autoscale", "vm_manager", "ssh_utils", "host_resource_checker",
+  "billing_tracker", "metrics", "config_schema", "version",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "version.__version__" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "S", "UP", "C4", "SIM", "RUF"]
+ignore = [
+  "E501",    # long lines are caught by review, not by a hard stop
+  "S104",    # binding choices are validated at config load
+  "S603",    # subprocess use is deliberate and documented
+  "S607",    # partial paths are how qm and pvesh are invoked
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+  "S101",    # asserts are the point
+  "S105", "S106", "S108",   # fixture credentials and temp paths
+  "S310",    # urllib against a localhost test server
+  "E402",    # sys.path is set before importing the modules under test
+  "SIM115",  # NamedTemporaryFile(delete=False) is deliberate
+  "SIM117",
+]
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", ".venv/*", "docs/*", "conftest.py", "setup.py"]
+
+[tool.coverage.report]
+# The floor is the measured value at the time it was introduced. It exists to
+# stop erosion, not to certify the number as good.
+fail_under = 85
+skip_empty = true

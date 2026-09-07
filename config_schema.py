@@ -21,7 +21,7 @@ version. But it is reported, by path, so it stops being invisible.
 """
 
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 VMID_PATTERN = re.compile(r"^[0-9]{1,10}$")
 
@@ -56,7 +56,7 @@ class ConfigurationInvalid(Exception):
     to see all of them.
     """
 
-    def __init__(self, errors: List[str]):
+    def __init__(self, errors: list[str]):
         self.errors = errors
         joined = "\n".join(f"  - {e}" for e in errors)
         super().__init__(
@@ -67,10 +67,10 @@ class ConfigurationInvalid(Exception):
 class _Validator:
     """Collects problems instead of raising on the first one."""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.config = config
-        self.errors: List[str] = []
-        self.warnings: List[str] = []
+        self.errors: list[str] = []
+        self.warnings: list[str] = []
 
     # -- primitives ---------------------------------------------------------
 
@@ -95,7 +95,7 @@ class _Validator:
         if not isinstance(value, bool):
             self.error(path, f"expected true or false, got {value!r}")
 
-    def _unknown_keys(self, mapping: Dict[str, Any], known: set, path: str) -> None:
+    def _unknown_keys(self, mapping: dict[str, Any], known: set, path: str) -> None:
         for key in mapping:
             if key not in known:
                 self.warn(
@@ -177,10 +177,10 @@ class _Validator:
                 "below 1 GB and memory hotplug may fail",
             )
 
-    def check_hosts(self) -> Dict[str, int]:
+    def check_hosts(self) -> dict[str, int]:
         """Validate `proxmox_hosts` and return the host names it defines."""
         hosts = self.config.get("proxmox_hosts")
-        names: Dict[str, int] = {}
+        names: dict[str, int] = {}
 
         if not isinstance(hosts, list) or not hosts:
             self.error("proxmox_hosts", "expected a non-empty list of hosts")
@@ -226,13 +226,13 @@ class _Validator:
 
         return names
 
-    def check_vms(self, host_names: Dict[str, int]) -> None:
+    def check_vms(self, host_names: dict[str, int]) -> None:
         vms = self.config.get("virtual_machines")
         if not isinstance(vms, list) or not vms:
             self.error("virtual_machines", "expected a non-empty list of VMs")
             return
 
-        seen: Dict[str, int] = {}
+        seen: dict[str, int] = {}
 
         for index, vm in enumerate(vms):
             path = f"virtual_machines[{index}]"
@@ -422,7 +422,7 @@ class _Validator:
         if "auto_configure_hotplug" in self.config:
             self._bool(self.config["auto_configure_hotplug"], "auto_configure_hotplug")
 
-    def run(self) -> Tuple[List[str], List[str]]:
+    def run(self) -> tuple[list[str], list[str]]:
         if not isinstance(self.config, dict):
             self.error("<root>",
                        f"expected a mapping at the top level, got "
@@ -454,7 +454,7 @@ class _Validator:
         return self.errors, self.warnings
 
 
-def validate(config: Dict[str, Any]) -> List[str]:
+def validate(config: dict[str, Any]) -> list[str]:
     """Validate a loaded configuration.
 
     Returns the list of warnings. Raises `ConfigurationInvalid` carrying every

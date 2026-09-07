@@ -23,10 +23,9 @@ import paramiko
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from autoscale import NotificationManager, VMAutoscaler
+from autoscale import NotificationManager
 from builders import make_autoscaler, quiet_logger, valid_config
-from ssh_utils import SSHClient
-from vm_manager import CommandFailed
+from ssh_utils import SSHClient, SSHCommandError
 from version import __version__
 
 
@@ -434,7 +433,7 @@ class TestExecuteCommand(unittest.TestCase):
         client.client.exec_command.side_effect = failing
         client.connect = MagicMock(side_effect=self._reconnecting(client, failing))
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(SSHCommandError):
             client.execute_command("qm config 101")
         self.assertEqual(client.connect.call_count, 3)
 
@@ -446,7 +445,7 @@ class TestExecuteCommand(unittest.TestCase):
         client.client.exec_command.side_effect = failing
         client.connect = MagicMock(side_effect=self._reconnecting(client, failing))
 
-        with self.assertRaises(Exception) as ctx:
+        with self.assertRaises(SSHCommandError) as ctx:
             client.execute_command("qm config 101")
         self.assertIn("after 2 attempts", str(ctx.exception))
 
@@ -457,7 +456,7 @@ class TestExecuteCommand(unittest.TestCase):
         client.client.exec_command.side_effect = OSError("socket closed")
         client.connect = MagicMock(side_effect=OSError("host unreachable"))
 
-        with self.assertRaises(Exception) as ctx:
+        with self.assertRaises(SSHCommandError) as ctx:
             client.execute_command("qm config 101")
         message = str(ctx.exception)
         self.assertIn("could not reconnect", message)
@@ -519,9 +518,8 @@ class TestConnectionLifecycle(unittest.TestCase):
         client = SSHClient(host="h", user="root")
         client.backoff_factor = 0
         client.max_retries = 1
-        with patch("paramiko.SSHClient"):
-            with self.assertRaises(Exception):
-                client.connect()
+        with patch("paramiko.SSHClient"), self.assertRaises(ValueError):
+            client.connect()
 
 
 if __name__ == "__main__":

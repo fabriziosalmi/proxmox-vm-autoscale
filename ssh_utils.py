@@ -9,6 +9,14 @@ from paramiko.ssh_exception import (
     SSHException,
 )
 
+class SSHCommandError(SSHException):
+    """A command could not be run after exhausting the retry budget.
+
+    Previously a bare `Exception`, which meant no caller could distinguish it
+    from a programming error and every test had to assert on a blind type.
+    """
+
+
 DEFAULT_KNOWN_HOSTS = "/etc/vm_autoscale/known_hosts"
 
 #: Host key policies, loosest last.
@@ -112,32 +120,32 @@ class SSHClient:
             try:
                 self.client = paramiko.SSHClient()
                 self._apply_host_key_policy(self.client)
-                
+
                 # Connect using password or private key
                 if self.password:
                     self.client.connect(
-                        hostname=self.host, 
-                        username=self.user, 
-                        password=self.password, 
+                        hostname=self.host,
+                        username=self.user,
+                        password=self.password,
                         port=self.port,
                         timeout=10
                     )
                 elif self.key_path:
                     private_key = self._load_private_key()
                     self.client.connect(
-                        hostname=self.host, 
-                        username=self.user, 
-                        pkey=private_key, 
+                        hostname=self.host,
+                        username=self.user,
+                        pkey=private_key,
                         port=self.port,
                         timeout=10
                     )
                 else:
                     raise ValueError("Either password or key_path must be provided for SSH connection.")
-                
+
                 self.logger.info(f"Successfully connected to {self.host} on port {self.port}")
                 break  # successful connection: exit loop
 
-            except BadHostKeyException as e:
+            except BadHostKeyException:
                 self.logger.error(
                     f"Host key mismatch for {self.host}: the server presented a key "
                     f"that does not match the one recorded in {self.known_hosts}. "
@@ -201,7 +209,7 @@ class SSHClient:
         while attempts < self.max_retries:
             try:
                 # ...existing code before try...
-                stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
+                _stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
                 exit_status = stdout.channel.recv_exit_status()
 
                 output = stdout.read().decode('utf-8').strip()
@@ -215,7 +223,7 @@ class SSHClient:
                     return output, error, exit_status
             except Exception as e:
                 attempts += 1
-                self.logger.error(f"Error executing command on {self.host} (attempt {attempts}): {str(e)}")
+                self.logger.error(f"Error executing command on {self.host} (attempt {attempts}): {e!s}")
                 self.close()
                 try:
                     self.connect()
@@ -223,13 +231,15 @@ class SSHClient:
                     # Without this, self.client stays None and every remaining
                     # attempt fails with AttributeError, burying the real cause
                     # under a confusing NoneType error.
-                    self.logger.error(f"Reconnection failed on {self.host}: {str(connect_err)}")
-                    raise SSHException(
+                    self.logger.error(f"Reconnection failed on {self.host}: {connect_err!s}")
+                    raise SSHCommandError(
                         f"Lost the connection to {self.host} while running "
                         f"`{command}` and could not reconnect: {connect_err}"
                     ) from connect_err
                 time.sleep(self.backoff_factor * (2 ** (attempts - 1)))
-        raise Exception(f"Failed to execute command on {self.host} after {attempts} attempts.")
+        raise SSHCommandError(
+            f"Failed to execute command on {self.host} after {attempts} attempts."
+        )
 
     def close(self):
         """
@@ -240,7 +250,7 @@ class SSHClient:
                 self.client.close()
                 self.logger.info(f"SSH connection closed for {self.host}")
             except Exception as e:
-                self.logger.error(f"Error while closing SSH connection to {self.host}: {str(e)}")
+                self.logger.error(f"Error while closing SSH connection to {self.host}: {e!s}")
             finally:
                 self.client = None
 

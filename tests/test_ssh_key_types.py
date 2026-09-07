@@ -88,7 +88,7 @@ class TestPrivateKeyLoading(unittest.TestCase):
         self.assertIn(p, str(ctx.exception))
 
     def test_missing_file_raises(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises((OSError, paramiko.ssh_exception.SSHException)):
             client_for(self.path("absent"))._load_private_key()
 
     @unittest.skipUnless(HAVE_CRYPTOGRAPHY, "cryptography not available")

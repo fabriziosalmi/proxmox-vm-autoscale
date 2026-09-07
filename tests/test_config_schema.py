@@ -7,7 +7,6 @@ absence produced most of the defects fixed between 1.3.0 and 1.6.0. These tests
 pin the contract that replaced it.
 """
 
-import copy
 import os
 import sys
 import unittest

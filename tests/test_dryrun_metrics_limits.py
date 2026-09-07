@@ -10,7 +10,6 @@ Regression tests for four defects fixed together.
 4. There was no way to monitor the service except by parsing its log.
 """
 
-import json
 import logging
 import os
 import sys

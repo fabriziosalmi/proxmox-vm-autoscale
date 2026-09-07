@@ -6,6 +6,7 @@ Records CPU/RAM spec changes and VM state transitions, then generates
 billing reports per period.
 """
 
+import contextlib
 import csv
 import json
 import logging
@@ -14,8 +15,8 @@ import subprocess
 import tempfile
 import requests
 from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
+from typing import Any
 from pathlib import Path
 
 
@@ -29,8 +30,8 @@ class SpecChangeRecord:
     timestamp: datetime
     cpu_cores: int
     ram_mb: int
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "timestamp": self.timestamp.isoformat(),
             "cpu_cores": self.cpu_cores,
@@ -43,8 +44,8 @@ class StateChangeRecord:
     """Record of a VM state change (started/stopped)."""
     timestamp: datetime
     state: str  # 'started' or 'stopped'
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "timestamp": self.timestamp.isoformat(),
             "state": self.state
@@ -67,10 +68,10 @@ class BillingReport:
     total_uptime_hours: float
     total_downtime_hours: float
     uptime_percentage: float
-    spec_changes: List[Dict[str, Any]]
+    spec_changes: list[dict[str, Any]]
     total_cost: float
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "vm_id": self.vm_id,
             "vm_name": self.vm_name,
@@ -114,7 +115,7 @@ def as_aware(value: datetime) -> datetime:
 class BillingTracker:
     """
     Tracks VM resource usage and calculates billing for autoscaled resources.
-    
+
     Usage:
         tracker = BillingTracker(config, logger)
         tracker.record_spec_change(vm_id, cpu_cores, ram_mb)
@@ -122,23 +123,23 @@ class BillingTracker:
         report = tracker.calculate_billing_period(vm_id, start_date, end_date)
         tracker.export_csv(report, output_path)
     """
-    
-    def __init__(self, config: Dict[str, Any], logger: logging.Logger):
+
+    def __init__(self, config: dict[str, Any], logger: logging.Logger):
         self.config = config
         self.logger = logger
         self.billing_config = config.get('billing', {})
-        
+
         # Storage for records (in production, this would be persisted to disk/DB)
-        self._spec_changes: Dict[str, List[SpecChangeRecord]] = {}
-        self._state_changes: Dict[str, List[StateChangeRecord]] = {}
-        self._vm_names: Dict[str, str] = {}
+        self._spec_changes: dict[str, list[SpecChangeRecord]] = {}
+        self._state_changes: dict[str, list[StateChangeRecord]] = {}
+        self._vm_names: dict[str, str] = {}
         # When the last period report was emitted, so the service knows when
         # the next one is due across restarts.
-        self._last_report_time: Optional[datetime] = None
+        self._last_report_time: datetime | None = None
         # Set when the on-disk history could not be read. Writes stay disabled
         # for the rest of the run so an empty tracker cannot clobber it.
         self._writes_disabled = False
-        
+
         # Billing parameters
         self.cost_per_cpu_hour = self.billing_config.get('cost_per_cpu_core_per_hour', 0.01)
         self.cost_per_gb_ram_hour = self.billing_config.get('cost_per_gb_ram_per_hour', 0.005)
@@ -146,17 +147,17 @@ class BillingTracker:
         self.csv_output_dir = self.billing_config.get('csv_output_dir', '/var/log/vm_autoscale/billing/')
         self.webhook_script = self.billing_config.get('webhook_script', '')
         self.webhook_url = self.billing_config.get('webhook_url', '')
-        
+
         # Ensure output directory exists
         Path(self.csv_output_dir).mkdir(parents=True, exist_ok=True)
-        
+
         # Load persisted data if exists
         self._load_data()
-    
+
     def _get_data_file_path(self) -> str:
         """Get path to the persisted billing data file."""
         return os.path.join(self.csv_output_dir, 'billing_data.json')
-    
+
     def _load_data(self) -> None:
         """Load persisted billing data from disk.
 
@@ -169,9 +170,9 @@ class BillingTracker:
         data_file = self._get_data_file_path()
         if os.path.exists(data_file):
             try:
-                with open(data_file, 'r') as f:
+                with open(data_file) as f:
                     data = json.load(f)
-                
+
                 # Restore spec changes
                 for vm_id, records in data.get('spec_changes', {}).items():
                     self._spec_changes[vm_id] = [
@@ -181,7 +182,7 @@ class BillingTracker:
                             ram_mb=r['ram_mb']
                         ) for r in records
                     ]
-                
+
                 # Restore state changes
                 for vm_id, records in data.get('state_changes', {}).items():
                     self._state_changes[vm_id] = [
@@ -190,7 +191,7 @@ class BillingTracker:
                             state=r['state']
                         ) for r in records
                     ]
-                
+
                 self._vm_names = data.get('vm_names', {})
 
                 last_report = data.get('last_report_time')
@@ -261,26 +262,24 @@ class BillingTracker:
             except BaseException:
                 # BaseException so a SystemExit or KeyboardInterrupt mid-write
                 # still removes the partial file rather than leaving litter.
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(tmp_path)
-                except OSError:
-                    pass
                 raise
 
             self.logger.debug(f"Saved billing data to {data_file}")
         except Exception as e:
             self.logger.error(f"Failed to save billing data: {e}")
-    
-    def get_last_report_time(self) -> Optional[datetime]:
+
+    def get_last_report_time(self) -> datetime | None:
         """When the last period report was generated, or None if never."""
         return self._last_report_time
 
-    def set_last_report_time(self, when: Optional[datetime] = None) -> None:
+    def set_last_report_time(self, when: datetime | None = None) -> None:
         """Record that a period report has just been generated."""
         self._last_report_time = as_aware(when) if when else utcnow()
         self._save_data()
 
-    def is_period_due(self, now: Optional[datetime] = None) -> bool:
+    def is_period_due(self, now: datetime | None = None) -> bool:
         """Whether a full billing period has elapsed since the last report.
 
         The first call starts the clock rather than emitting an empty report
@@ -296,12 +295,12 @@ class BillingTracker:
         """Set the human-readable name for a VM."""
         self._vm_names[str(vm_id)] = vm_name
         self._save_data()
-    
-    def record_spec_change(self, vm_id: str, cpu_cores: int, ram_mb: int, 
-                           timestamp: Optional[datetime] = None) -> None:
+
+    def record_spec_change(self, vm_id: str, cpu_cores: int, ram_mb: int,
+                           timestamp: datetime | None = None) -> None:
         """
         Record a spec change for a VM.
-        
+
         Args:
             vm_id: The VM identifier
             cpu_cores: Current number of CPU cores
@@ -311,7 +310,7 @@ class BillingTracker:
         vm_id = str(vm_id)
         if vm_id not in self._spec_changes:
             self._spec_changes[vm_id] = []
-        
+
         record = SpecChangeRecord(
             timestamp=as_aware(timestamp) if timestamp else utcnow(),
             cpu_cores=cpu_cores,
@@ -319,17 +318,17 @@ class BillingTracker:
         )
         self._spec_changes[vm_id].append(record)
         self._save_data()
-        
+
         self.logger.info(
             f"Billing: Recorded spec change for VM {vm_id}: "
             f"CPU={cpu_cores} cores, RAM={ram_mb} MB"
         )
-    
+
     def record_vm_state_change(self, vm_id: str, state: str,
-                                timestamp: Optional[datetime] = None) -> None:
+                                timestamp: datetime | None = None) -> None:
         """
         Record a VM state change (started/stopped).
-        
+
         Args:
             vm_id: The VM identifier
             state: Either 'started' or 'stopped'
@@ -338,30 +337,30 @@ class BillingTracker:
         vm_id = str(vm_id)
         if state not in ('started', 'stopped'):
             raise ValueError(f"Invalid state: {state}. Must be 'started' or 'stopped'")
-        
+
         if vm_id not in self._state_changes:
             self._state_changes[vm_id] = []
-        
+
         record = StateChangeRecord(
             timestamp=as_aware(timestamp) if timestamp else utcnow(),
             state=state
         )
         self._state_changes[vm_id].append(record)
         self._save_data()
-        
+
         self.logger.info(f"Billing: Recorded VM {vm_id} state change: {state}")
-    
-    def calculate_billing_period(self, vm_id: str, 
+
+    def calculate_billing_period(self, vm_id: str,
                                   period_start: datetime,
                                   period_end: datetime) -> BillingReport:
         """
         Calculate billing for a VM over a specified period.
-        
+
         Args:
             vm_id: The VM identifier
             period_start: Start of billing period
             period_end: End of billing period
-            
+
         Returns:
             BillingReport with calculated costs and statistics
         """
@@ -371,7 +370,7 @@ class BillingTracker:
         # Callers may hand in naive bounds; records on disk are UTC-aware.
         period_start = as_aware(period_start)
         period_end = as_aware(period_end)
-        
+
         # Records that actually happened inside the period. These are what the
         # report lists, because they are the real events.
         spec_records = [
@@ -399,14 +398,14 @@ class BillingTracker:
         else:
             min_cpu = max_cpu = avg_cpu = 0
             min_ram = max_ram = avg_ram = 0
-        
+
         # Calculate uptime/downtime
         total_hours = (period_end - period_start).total_seconds() / 3600
         uptime_hours, downtime_hours = self._calculate_uptime(
             state_records, period_start, period_end
         )
         uptime_percentage = (uptime_hours / total_hours * 100) if total_hours > 0 else 0
-        
+
         # Calculate cost (only charge for uptime)
         # Use time-weighted average for resources
         cpu_cost = self._calculate_resource_cost(
@@ -418,7 +417,7 @@ class BillingTracker:
             period_start, period_end, state_records
         )
         total_cost = cpu_cost + ram_cost
-        
+
         return BillingReport(
             vm_id=vm_id,
             vm_name=vm_name,
@@ -436,9 +435,9 @@ class BillingTracker:
             spec_changes=[r.to_dict() for r in spec_records],
             total_cost=total_cost
         )
-    
+
     def _specs_in_effect(self, vm_id: str, period_start: datetime,
-                         period_end: datetime) -> List[SpecChangeRecord]:
+                         period_end: datetime) -> list[SpecChangeRecord]:
         """Spec records covering the period, including the one carried in.
 
         Spec changes are events, not samples: a VM that held one size for the
@@ -459,10 +458,10 @@ class BillingTracker:
             cpu_cores=carried.cpu_cores,
             ram_mb=carried.ram_mb,
         )
-        return [opening] + inside
+        return [opening, *inside]
 
     def _states_in_effect(self, vm_id: str, period_start: datetime,
-                          period_end: datetime) -> List[StateChangeRecord]:
+                          period_end: datetime) -> list[StateChangeRecord]:
         """State records for the period, including the state carried in.
 
         Without the carry-in, a VM that started months ago and was stopped once
@@ -477,11 +476,11 @@ class BillingTracker:
             return inside
 
         opening = StateChangeRecord(timestamp=period_start, state=before[-1].state)
-        return [opening] + inside
+        return [opening, *inside]
 
-    def _uptime_intervals(self, state_records: List[StateChangeRecord],
+    def _uptime_intervals(self, state_records: list[StateChangeRecord],
                           period_start: datetime,
-                          period_end: datetime) -> List[tuple]:
+                          period_end: datetime) -> list[tuple]:
         """The (start, end) windows during which the VM was running."""
         if not state_records:
             # Nothing recorded: assume the VM was up for the whole period.
@@ -503,7 +502,7 @@ class BillingTracker:
 
         return intervals
 
-    def _calculate_uptime(self, state_records: List[StateChangeRecord],
+    def _calculate_uptime(self, state_records: list[StateChangeRecord],
                           period_start: datetime,
                           period_end: datetime) -> tuple:
         """Calculate total uptime and downtime hours for a period."""
@@ -521,13 +520,13 @@ class BillingTracker:
         start = max(a_start, b_start)
         end = min(a_end, b_end)
         return max(0.0, (end - start).total_seconds())
-    
-    def _calculate_resource_cost(self, spec_records: List[SpecChangeRecord],
+
+    def _calculate_resource_cost(self, spec_records: list[SpecChangeRecord],
                                   resource_key: str,
                                   cost_per_unit_hour: float,
                                   period_start: datetime,
                                   period_end: datetime,
-                                  state_records: List[StateChangeRecord]) -> float:
+                                  state_records: list[StateChangeRecord]) -> float:
         """Cost for one resource over the period, charged only while the VM was up.
 
         `state_records` used to be accepted and ignored, so a VM powered off for
@@ -560,26 +559,26 @@ class BillingTracker:
 
         total_cost += charge(last_record, last_timestamp, period_end)
         return total_cost
-    
-    def export_csv(self, report: BillingReport, 
-                   output_path: Optional[str] = None) -> str:
+
+    def export_csv(self, report: BillingReport,
+                   output_path: str | None = None) -> str:
         """
         Export a billing report to CSV format.
-        
+
         Args:
             report: The billing report to export
             output_path: Optional custom output path
-            
+
         Returns:
             Path to the generated CSV file
         """
         if output_path is None:
             filename = f"billing_{report.vm_id}_{report.period_start.strftime('%Y%m%d')}_{report.period_end.strftime('%Y%m%d')}.csv"
             output_path = os.path.join(self.csv_output_dir, filename)
-        
+
         with open(output_path, 'w', newline='') as f:
             writer = csv.writer(f)
-            
+
             # Write summary
             writer.writerow(['Billing Report'])
             writer.writerow(['VM ID', report.vm_id])
@@ -587,49 +586,49 @@ class BillingTracker:
             writer.writerow(['Period Start', report.period_start.isoformat()])
             writer.writerow(['Period End', report.period_end.isoformat()])
             writer.writerow([])
-            
+
             # Write resource statistics
             writer.writerow(['Resource Statistics'])
             writer.writerow(['Metric', 'Min', 'Max', 'Average'])
-            writer.writerow(['CPU Cores', report.min_cpu_cores, report.max_cpu_cores, 
+            writer.writerow(['CPU Cores', report.min_cpu_cores, report.max_cpu_cores,
                            round(report.avg_cpu_cores, 2)])
             writer.writerow(['RAM (MB)', report.min_ram_mb, report.max_ram_mb,
                            round(report.avg_ram_mb, 2)])
             writer.writerow([])
-            
+
             # Write uptime statistics
             writer.writerow(['Uptime Statistics'])
             writer.writerow(['Total Uptime (hours)', round(report.total_uptime_hours, 2)])
             writer.writerow(['Total Downtime (hours)', round(report.total_downtime_hours, 2)])
             writer.writerow(['Uptime Percentage', f"{round(report.uptime_percentage, 2)}%"])
             writer.writerow([])
-            
+
             # Write cost
             writer.writerow(['Billing'])
             writer.writerow(['Total Cost', f"${round(report.total_cost, 4)}"])
             writer.writerow([])
-            
+
             # Write spec changes
             if report.spec_changes:
                 writer.writerow(['Spec Changes'])
                 writer.writerow(['Timestamp', 'CPU Cores', 'RAM (MB)'])
                 for change in report.spec_changes:
                     writer.writerow([change['timestamp'], change['cpu_cores'], change['ram_mb']])
-        
+
         self.logger.info(f"Billing report exported to {output_path}")
         return output_path
-    
+
     def run_webhook(self, report: BillingReport) -> None:
         """
         Run webhook script or POST to webhook URL with billing data.
-        
+
         Args:
             report: The billing report to send
         """
         report_dict = report.to_dict()
-        
+
         # Run webhook script if configured
-        if self.webhook_script and os.path.exists(self.webhook_script):
+        if self.webhook_script and self._webhook_script_is_safe():
             try:
                 result = subprocess.run(
                     [self.webhook_script],
@@ -639,12 +638,12 @@ class BillingTracker:
                     timeout=60
                 )
                 if result.returncode == 0:
-                    self.logger.info(f"Webhook script executed successfully")
+                    self.logger.info("Webhook script executed successfully")
                 else:
                     self.logger.error(f"Webhook script failed: {result.stderr}")
             except Exception as e:
                 self.logger.error(f"Failed to run webhook script: {e}")
-        
+
         # POST to webhook URL if configured
         if self.webhook_url:
             try:
@@ -654,33 +653,73 @@ class BillingTracker:
                     timeout=30
                 )
                 response.raise_for_status()
-                self.logger.info(f"Billing data posted to webhook URL successfully")
+                self.logger.info("Billing data posted to webhook URL successfully")
             except Exception as e:
                 self.logger.error(f"Failed to POST to webhook URL: {e}")
-    
-    def generate_period_report(self, vm_id: str) -> Optional[BillingReport]:
+
+    def _webhook_script_is_safe(self) -> bool:
+        """Refuse to execute a webhook script others can rewrite.
+
+        This runs as root at every billing period boundary. A script that is
+        group- or world-writable, or that lives in a directory anyone can
+        write to, is an arbitrary root execution waiting for someone to notice
+        it.
+        """
+        path = self.webhook_script
+        if not os.path.exists(path):
+            self.logger.error(f"Webhook script {path} does not exist; skipping it.")
+            return False
+
+        try:
+            info = os.stat(path)
+            directory = os.stat(os.path.dirname(os.path.abspath(path)))
+        except OSError as e:
+            self.logger.error(f"Could not inspect webhook script {path}: {e}")
+            return False
+
+        if not os.access(path, os.X_OK):
+            self.logger.error(f"Webhook script {path} is not executable; skipping it.")
+            return False
+
+        for label, st in (("script", info), ("its directory", directory)):
+            if st.st_mode & 0o022:
+                self.logger.error(
+                    f"Refusing to run {path}: {label} is writable by group or "
+                    "others, and this runs as root."
+                )
+                return False
+            if st.st_uid != os.getuid() and st.st_uid != 0:
+                self.logger.error(
+                    f"Refusing to run {path}: {label} is owned by uid "
+                    f"{st.st_uid}, which is neither root nor this process."
+                )
+                return False
+
+        return True
+
+    def generate_period_report(self, vm_id: str) -> BillingReport | None:
         """
         Generate a billing report for the current billing period.
-        
+
         Args:
             vm_id: The VM identifier
-            
+
         Returns:
             BillingReport if successful, None otherwise
         """
         try:
             period_end = utcnow()
             period_start = period_end - timedelta(days=self.billing_period_days)
-            
+
             report = self.calculate_billing_period(vm_id, period_start, period_end)
-            
+
             # Export to CSV
-            csv_path = self.export_csv(report)
-            
+            self.export_csv(report)
+
             # Run webhook if configured
             if self.webhook_script or self.webhook_url:
                 self.run_webhook(report)
-            
+
             return report
         except Exception as e:
             self.logger.error(f"Failed to generate billing report for VM {vm_id}: {e}")

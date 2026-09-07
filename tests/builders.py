@@ -16,7 +16,7 @@ nothing.
 import logging
 import os
 import tempfile
-from typing import Any, Dict, Optional
+from typing import Any
 from unittest.mock import MagicMock
 
 import yaml
@@ -24,9 +24,9 @@ import yaml
 from autoscale import VMAutoscaler
 
 
-def valid_config(**overrides: Any) -> Dict[str, Any]:
+def valid_config(**overrides: Any) -> dict[str, Any]:
     """A configuration that passes validation, as a starting point."""
-    config: Dict[str, Any] = {
+    config: dict[str, Any] = {
         "scaling_thresholds": {
             "cpu": {"high": 80, "low": 20},
             "ram": {"high": 85, "low": 25},
@@ -58,7 +58,7 @@ def valid_config(**overrides: Any) -> Dict[str, Any]:
     return config
 
 
-def write_config(config: Dict[str, Any], directory: str) -> str:
+def write_config(config: dict[str, Any], directory: str) -> str:
     """Write a config to a YAML file and point its log at the same directory."""
     config = dict(config)
     config.setdefault("logging", {})
@@ -79,7 +79,7 @@ class autoscaler_context:
     control over the lifetime.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None,
+    def __init__(self, config: dict[str, Any] | None = None,
                  mock_notifications: bool = True):
         self.config = config if config is not None else valid_config()
         self.mock_notifications = mock_notifications
@@ -103,7 +103,7 @@ class autoscaler_context:
             self._tmp = None
 
 
-def make_autoscaler(test_case, config: Optional[Dict[str, Any]] = None,
+def make_autoscaler(test_case, config: dict[str, Any] | None = None,
                     mock_notifications: bool = True) -> VMAutoscaler:
     """Construct a real VMAutoscaler, cleaned up when `test_case` finishes."""
     tmp = tempfile.TemporaryDirectory()

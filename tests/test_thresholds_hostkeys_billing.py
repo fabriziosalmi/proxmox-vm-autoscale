@@ -23,12 +23,9 @@ import paramiko
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from autoscale import VMAutoscaler
 from builders import make_autoscaler, valid_config
 from billing_tracker import (
     BillingTracker,
-    SpecChangeRecord,
-    StateChangeRecord,
     utcnow,
 )
 from ssh_utils import SSHClient

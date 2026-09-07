@@ -1,6 +1,14 @@
 import logging
 import json
 
+class HostResourceUnavailable(RuntimeError):
+    """The node status could not be read.
+
+    Previously a bare `Exception`, so no caller could tell it apart from a
+    programming error and every test had to assert on a blind type.
+    """
+
+
 class HostResourceChecker:
     """
     Class to check and monitor host resource usage via SSH.
@@ -29,30 +37,30 @@ class HostResourceChecker:
             # Command to retrieve host resource status
             command = "pvesh get /nodes/$(hostname)/status --output-format json"
             output, error, exit_status = self.ssh_client.execute_command(command)  # Properly unpack the tuple
-            
+
             # Debug logging
             self.logger.debug(f"Raw command output: {output}")
             self.logger.debug(f"Error output: {error}")
             self.logger.debug(f"Exit status: {exit_status}")
-            
+
             # Check for error output
             if error:
-                raise Exception(f"Command execution error: {error}")
-                
+                raise HostResourceUnavailable(f"Command execution error: {error}")
+
             # Make sure output is a string
             if not isinstance(output, str):
                 output = output.decode() if isinstance(output, bytes) else str(output)
-                
+
             # Parse JSON response
             data = json.loads(output.strip())  # Add strip() to remove any whitespace
-            
+
             # Rest of your code remains the same
             if 'cpu' not in data or 'memory' not in data:
                 raise KeyError("Missing 'cpu' or 'memory' in the command output.")
-                
+
             # Extract and calculate CPU usage
             host_cpu_usage = data['cpu'] * 100  # Convert to percentage
-            
+
             # Extract memory details
             memory_data = data['memory']
             total_mem = memory_data.get('total', 1)  # Avoid division by zero
@@ -63,33 +71,33 @@ class HostResourceChecker:
 
             self.last_cpu_percent = host_cpu_usage
             self.last_ram_percent = host_ram_usage
-            
+
             # Log resource usage
             self.logger.info(f"Host CPU Usage: {host_cpu_usage:.2f}%, "
                              f"Host RAM Usage: {host_ram_usage:.2f}%")
-            
+
             # Check CPU usage threshold
             if host_cpu_usage > max_host_cpu_percent:
                 self.logger.warning(f"Host CPU usage exceeds maximum allowed limit: "
                                     f"{host_cpu_usage:.2f}% > {max_host_cpu_percent}%")
                 return False
-                
+
             # Check RAM usage threshold
             if host_ram_usage > max_host_ram_percent:
                 self.logger.warning(f"Host RAM usage exceeds maximum allowed limit: "
                                     f"{host_ram_usage:.2f}% > {max_host_ram_percent}%")
                 return False
-                
+
             # Resources are within limits
             return True
-            
+
         except json.JSONDecodeError as json_err:
-            self.logger.error(f"Failed to parse JSON output: {str(json_err)}")
+            self.logger.error(f"Failed to parse JSON output: {json_err!s}")
             self.logger.error(f"Raw output causing JSON error: {output}")
             raise
         except KeyError as key_err:
-            self.logger.error(f"Missing data in the response: {str(key_err)}")
+            self.logger.error(f"Missing data in the response: {key_err!s}")
             raise
         except Exception as e:
-            self.logger.error(f"Failed to check host resources: {str(e)}")
+            self.logger.error(f"Failed to check host resources: {e!s}")
             raise

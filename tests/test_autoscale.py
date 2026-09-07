@@ -17,14 +17,13 @@ import sys
 import tempfile
 import unittest
 import yaml
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from metrics import build_registry
 from autoscale import NotificationManager, ConfigurationError, VMAutoscaler
 from config_schema import ConfigurationInvalid
-from builders import make_autoscaler, valid_config
+from builders import make_autoscaler
 
 
 # ---------------------------------------------------------------------------

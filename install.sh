@@ -39,6 +39,23 @@ apt-get update || { echo "ERROR: Failed to update package lists"; exit 1; }
 apt-get install -y python3 curl bash git python3-paramiko python3-yaml python3-requests python3-cryptography \
     || { echo "ERROR: Failed to install required packages"; exit 1; }
 
+# Which revision to install. The default is the latest release tag, not the
+# default branch: cloning `main` meant the documented install command shipped
+# unreleased code, every install was a different artifact, and the release
+# notes were read by nobody who followed the README.
+#   VM_AUTOSCALE_REF=main  ./install.sh   installs the development branch
+REF="${VM_AUTOSCALE_REF:-}"
+if [ -z "$REF" ]; then
+    echo "Resolving the latest release..."
+    REF="$(git ls-remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*' 2>/dev/null \
+           | head -n1 | sed 's#.*refs/tags/##')"
+    if [ -z "$REF" ]; then
+        echo "WARNING: could not resolve a release tag; falling back to the default branch."
+        REF="HEAD"
+    fi
+fi
+echo "Installing revision: $REF"
+
 # Clone the repository
 echo "Cloning the repository..."
 if [ -d "$INSTALL_DIR" ]; then
@@ -46,7 +63,13 @@ if [ -d "$INSTALL_DIR" ]; then
     rm -rf "$INSTALL_DIR" || { echo "ERROR: Failed to remove existing directory $INSTALL_DIR"; exit 1; }
 fi
 
-git clone "$REPO_URL" "$INSTALL_DIR" || { echo "ERROR: Failed to clone the repository from $REPO_URL"; exit 1; }
+if [ "$REF" = "HEAD" ]; then
+    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" \
+        || { echo "ERROR: Failed to clone the repository from $REPO_URL"; exit 1; }
+else
+    git clone --depth 1 --branch "$REF" "$REPO_URL" "$INSTALL_DIR" \
+        || { echo "ERROR: Failed to clone $REF from $REPO_URL"; exit 1; }
+fi
 
 # Restore backup if it exists
 if [ -f "$BACKUP_FILE" ]; then
@@ -110,5 +133,6 @@ systemctl enable "$SERVICE_FILE" || { echo "ERROR: Failed to enable the service"
 echo "Installation complete. The service is enabled but not started."
 echo "To start the service, use: sudo systemctl start $SERVICE_FILE"
 echo "Logs can be monitored using: journalctl -u $SERVICE_FILE -f"
+echo "Installed revision: $REF"
 echo "Config backup location: $BACKUP_FILE"
 echo "NOTE: $CONFIG_FILE is mode 600 (root only) because it stores SSH and SMTP credentials."
