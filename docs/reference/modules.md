@@ -139,6 +139,26 @@ with both versions. The installer treats a failure as advisory: a working
 install on the distribution's slightly older packages beats a refused one, but
 it no longer happens silently.
 
+## `config_schema.py`
+
+The configuration contract, validated once at startup.
+
+| Function | Signature | Notes |
+|---|---|---|
+| `validate` | `(config: dict) -> list[str]` | Returns warnings; raises `ConfigurationInvalid` carrying **every** error found |
+
+`ConfigurationInvalid.errors` is the full list, one string per problem, each
+prefixed with the path it was found at (`virtual_machines[0].proxmox_host`).
+Unknown keys are warnings rather than errors, so a configuration carrying a key
+from a newer version still boots — but the typo is reported instead of silently
+doing nothing, which is how four separate historical defects shipped.
+
+## `version.py`
+
+`__version__`, the single source of truth. Logged at startup and carried as a
+label on `vm_autoscale_build_info`. Keep it in step with the git tag and
+`pyproject.toml`; a test enforces that it matches the newest changelog entry.
+
 ## `metrics.py`
 
 Prometheus text exposition over `http.server`, in a daemon thread. No third-party

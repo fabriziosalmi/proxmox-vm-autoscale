@@ -205,7 +205,8 @@ curl -s http://127.0.0.1:9808/metrics
 | Metric | Type | Labels |
 |---|---|---|
 | `vm_autoscale_up` | gauge | |
-| `vm_autoscale_build_info` | gauge | `dry_run` |
+| `vm_autoscale_build_info` | gauge | `version`, `dry_run` |
+| `vm_autoscale_billing_degraded` | gauge | — |
 | `vm_autoscale_cycles_total` | counter | |
 | `vm_autoscale_cycle_duration_seconds` | gauge | |
 | `vm_autoscale_last_cycle_timestamp_seconds` | gauge | |
