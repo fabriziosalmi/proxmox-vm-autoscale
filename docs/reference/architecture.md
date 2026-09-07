@@ -125,6 +125,13 @@ one endpoint on a service whose install story is three apt packages. Disabled
 by default and localhost-bound when enabled. A metric that could not be read
 has its series **removed** rather than set to zero.
 
+### `check_dependencies.py`
+
+A standalone script, run by the installer and safe to run at any time, comparing
+the importable package versions against `requirements.txt`. It exists because a
+real installation ended up below every declared floor — Debian ships older
+releases and `pip3` was not present — and nothing said so.
+
 ### `billing_tracker.py`
 
 Three dataclasses and a tracker. State is a single JSON file rewritten in full on every record. The main loop asks it once per cycle whether a billing period has elapsed and, when one has, generates a costed CSV per VM and fires any configured webhook.
@@ -177,7 +184,7 @@ Realistic places to add behaviour without restructuring:
 
 ## Tests
 
-`tests/` holds 316 unit tests across thirteen files, run with `pytest`. Tests build a real `VMAutoscaler` through its real constructor rather than assembling one attribute by attribute, so the wiring and the configuration contract are exercised on every call.
+`tests/` holds 332 unit tests across fourteen files, run with `pytest`. Tests build a real `VMAutoscaler` through its real constructor rather than assembling one attribute by attribute, so the wiring and the configuration contract are exercised on every call.
 
 SSH is still mocked throughout and **CI still has no integration test** against a real Proxmox node. What changed is that the fixtures are no longer invented: `tests/test_real_proxmox_shapes.py` uses payloads copied verbatim off a PVE 9.1.7 host — a `qm config` with no `vcpus`, a command that succeeds while writing to stderr, the real `/cluster/resources` JSON.
 

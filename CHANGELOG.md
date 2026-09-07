@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tests/test_docs_match_code.py`: the documentation can no longer drift away
+  from the code in silence. The build fails on a configuration key the schema
+  accepts but the reference does not mention, a metric the service exports but
+  the operations guide does not list, a module missing from the module
+  reference, or a version claimed anywhere that is not the one in `version.py`.
+  REVIEW.md §8.3 recorded this risk and nothing had acted on it — thirteen files
+  once needed correcting in a single change, and every stale claim was found
+  after the code had already moved.
+
+### Fixed
+- `vm_autoscale_billing_degraded` was exported and never documented;
+  `config_schema.py` and `version.py` were missing from the module reference and
+  `check_dependencies.py` from the architecture page. All four were found by the
+  new tests on their first run, which is the point of them.
+
 ## [1.7.1] - 2026-09-07
 
 > **Upgrade note.** Two of these are serious enough to warrant upgrading

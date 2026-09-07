@@ -34,7 +34,7 @@ pytest tests/test_vm_hotplug.py -v           # one file
 pytest -k cooldown -v                        # by name
 ```
 
-316 tests, in about three seconds. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
+332 tests, in about three seconds. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
 
 ## What a good change looks like
 
@@ -87,6 +87,22 @@ Explain the reasoning in the body when a one-line subject cannot carry it. A rea
 4. Push and open the PR
 
 In the description: what changed, why, how you verified it, and any behaviour change existing installations will notice.
+
+## Keeping the documentation honest
+
+`tests/test_docs_match_code.py` fails the build when the documentation and the
+code disagree: a configuration key the schema accepts but the reference does not
+mention, a metric the service exports but the operations guide does not list, a
+module absent from the module reference, or a version claimed in the docs that
+is not the one in `version.py`.
+
+It exists because the opposite happened repeatedly. Thirteen files once had to
+be corrected in a single change, and stale claims — test counts, whether
+`ssh_port` was required, whether only RSA keys loaded — were each found *after*
+the code had already moved. Nothing checked any of it.
+
+The tests check presence and agreement, not prose. Whether a sentence is any
+good is a judgement no test makes.
 
 ## Areas that need work
 
