@@ -177,7 +177,11 @@ Realistic places to add behaviour without restructuring:
 
 ## Tests
 
-`tests/` holds 290 unit tests across eleven files, run with `pytest`. SSH is mocked throughout, so there is still no integration test against a real Proxmox node. Tests build a real `VMAutoscaler` through its real constructor rather than assembling one attribute by attribute, so the wiring and the configuration contract are exercised on every call.
+`tests/` holds 316 unit tests across thirteen files, run with `pytest`. Tests build a real `VMAutoscaler` through its real constructor rather than assembling one attribute by attribute, so the wiring and the configuration contract are exercised on every call.
+
+SSH is still mocked throughout and **CI still has no integration test** against a real Proxmox node. What changed is that the fixtures are no longer invented: `tests/test_real_proxmox_shapes.py` uses payloads copied verbatim off a PVE 9.1.7 host — a `qm config` with no `vcpus`, a command that succeeds while writing to stderr, the real `/cluster/resources` JSON.
+
+That distinction earned itself. A single session against real hardware found three defects while 303 tests passed, because every fixture until then encoded the same assumptions the code did.
 
 ```bash
 python3 -m pytest tests/ -q

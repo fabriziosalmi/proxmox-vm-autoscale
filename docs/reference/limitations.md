@@ -77,6 +77,19 @@ The shipped unit sets `User=root` with no systemd sandboxing directives.
 
 `vm_id` from the config is formatted straight into command strings without validation. Since the config is administrator-controlled this is not remotely exploitable, but a malformed VMID produces malformed commands rather than a clear error.
 
+### Distribution packages are older than the declared floors
+
+`requirements.txt` tracks the latest published release of each dependency, not
+the minimum the code needs. On Debian 13 / Proxmox VE 9, `apt` provides
+paramiko 3.5.1, PyYAML 6.0.2 and requests 2.32.3 — all below those floors — and
+`pip3` is not installed by default, so the pip step cannot close the gap.
+
+The service runs correctly on those versions; it was validated on exactly them.
+But the declared floors and the installed reality do not match, and only the
+[dependency check](/guide/installation#dependency-versions) tells you so.
+
+**Workaround:** a virtualenv, if you want the exact declared versions.
+
 ## Project-level notes
 
 ### Release tags before v1.3.0 are not in chronological order

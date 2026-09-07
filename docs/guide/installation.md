@@ -58,6 +58,34 @@ less install.sh
 sudo bash install.sh
 ```
 
+### Dependency versions
+
+The installer checks whether the packages it just installed actually satisfy
+`requirements.txt`, and says so when they do not:
+
+```
+WARNING: installed dependencies do not meet requirements.txt:
+  paramiko: 3.5.1 installed, requires >= 5.0.0
+  PyYAML: 6.0.2 installed, requires >= 6.0.3
+  requests: 2.32.3 installed, requires >= 2.34.2
+```
+
+This is normal on Debian: the distribution ships older releases than the
+declared floors, which track the latest published version rather than the
+minimum the code needs. The service will very likely run — it was validated on
+exactly those versions — but nothing has verified *your* combination, so the
+check reports it rather than letting the install proceed in silence.
+
+Run it yourself at any time:
+
+```bash
+python3 /usr/local/bin/vm_autoscale/check_dependencies.py \
+        /usr/local/bin/vm_autoscale/requirements.txt
+```
+
+Use the [virtualenv variant](#running-in-a-virtualenv) if you want the exact
+declared versions.
+
 ### If `pip3 install` fails
 
 On Proxmox VE 8 and other Debian 12+ systems, pip refuses to install into the system Python:
