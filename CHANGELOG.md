@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-07
+
+> **Upgrade note.** Two of these are serious enough to warrant upgrading
+> promptly:
+>
+> - On a node that writes any warning to stderr — a stale API token entry in
+>   `/etc/pve/user.cfg` is enough — **the autoscaler did nothing at all**, every
+>   cycle, while sending an error notification each time.
+> - On any VM without an explicit `vcpus` line, which is the Proxmox default,
+>   **a scale-up made the guest smaller.**
+>
+> No configuration changes are required.
+
 ### Fixed
 
 Both found by running the service against a real Proxmox VE 9.1.7 node — the
@@ -453,7 +466,8 @@ Recorded here because the original release notes overstate what shipped:
 - Host resource safety checks
 - Scaling cooldown periods
 
-[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.4.0...v1.5.0
