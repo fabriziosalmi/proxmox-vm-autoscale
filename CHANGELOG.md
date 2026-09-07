@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-05
+
+> **Upgrade note.** Three observable changes:
+>
+> - **An invalid configuration now refuses to start**, listing every problem at
+>   once. A configuration that "worked" while quietly ignoring half its keys
+>   will stop working. That is the fix, but it will look like new breakage —
+>   read the errors, they name the path and the reason.
+> - **A shrink now needs two consecutive low readings**
+>   (`scale_down_after_cycles`), so VMs scale down one cycle later than before.
+>   Growth is unchanged and still acts on the first reading.
+> - **Identical notifications are suppressed for 15 minutes**
+>   (`notification_dedup_seconds`). If you were alerting on notification volume
+>   rather than content, that signal is gone.
+>
+> `install.sh` now installs the latest release tag rather than the default
+> branch. Existing installations are unaffected until the next reinstall.
+
 Everything here comes from acting on [REVIEW.md](https://github.com/fabriziosalmi/proxmox-vm-autoscale/blob/main/REVIEW.md), a full critical
 review of `v1.6.0`. Ordered by the risk register in that document.
 
@@ -398,7 +416,8 @@ Recorded here because the original release notes overstate what shipped:
 - Host resource safety checks
 - Scaling cooldown periods
 
-[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.3.0...v1.4.0
