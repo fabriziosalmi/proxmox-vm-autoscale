@@ -609,7 +609,8 @@ class VMAutoscaler:
                                  {'vm_id': str(vm_id), 'resource': 'cpu',
                                   'direction': 'up'})
                 self.notification_manager.send_notification(
-                    f"Scaled up CPU for VM {vm_id} due to high usage ({cpu_usage}%).",
+                    f"Scaled up CPU for VM {vm_id} due to high usage "
+                    f"({self._format_usage(cpu_usage)}).",
                     priority=7
                 )
                 # Record for billing
@@ -621,7 +622,8 @@ class VMAutoscaler:
                                  {'vm_id': str(vm_id), 'resource': 'cpu',
                                   'direction': 'down'})
                 self.notification_manager.send_notification(
-                    f"Scaled down CPU for VM {vm_id} due to low usage ({cpu_usage}%).",
+                    f"Scaled down CPU for VM {vm_id} due to low usage "
+                    f"({self._format_usage(cpu_usage)}).",
                     priority=5
                 )
                 # Record for billing
@@ -644,7 +646,8 @@ class VMAutoscaler:
                                  {'vm_id': str(vm_id), 'resource': 'ram',
                                   'direction': 'up'})
                 self.notification_manager.send_notification(
-                    f"Scaled up RAM for VM {vm_id} due to high usage ({ram_usage}%).",
+                    f"Scaled up RAM for VM {vm_id} due to high usage "
+                    f"({self._format_usage(ram_usage)}).",
                     priority=7
                 )
                 # Record for billing
@@ -656,7 +659,8 @@ class VMAutoscaler:
                                  {'vm_id': str(vm_id), 'resource': 'ram',
                                   'direction': 'down'})
                 self.notification_manager.send_notification(
-                    f"Scaled down RAM for VM {vm_id} due to low usage ({ram_usage}%).",
+                    f"Scaled down RAM for VM {vm_id} due to low usage "
+                    f"({self._format_usage(ram_usage)}).",
                     priority=5
                 )
                 # Record for billing

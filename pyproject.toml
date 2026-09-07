@@ -51,7 +51,7 @@ vm-autoscale = "autoscale:main"
 [tool.setuptools]
 py-modules = [
   "autoscale", "vm_manager", "ssh_utils", "host_resource_checker",
-  "billing_tracker", "metrics", "config_schema", "version",
+  "billing_tracker", "metrics", "config_schema", "version", "check_dependencies",
 ]
 
 [tool.setuptools.dynamic]
