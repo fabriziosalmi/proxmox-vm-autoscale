@@ -43,9 +43,19 @@ class HostResourceChecker:
             self.logger.debug(f"Error output: {error}")
             self.logger.debug(f"Exit status: {exit_status}")
 
-            # Check for error output
+            # Judge the command by its exit status, not by whether it wrote
+            # anything to stderr. Proxmox emits benign warnings there on a
+            # successful call - a stale ACL token entry produces
+            # "user config - ignore invalid acl token '...'" with exit 0 - and
+            # treating that as fatal skipped every VM on the node, every cycle,
+            # for the lifetime of the service.
+            if exit_status != 0:
+                raise HostResourceUnavailable(
+                    f"`{command}` failed with exit status {exit_status}"
+                    f"{': ' + error if error else ''}"
+                )
             if error:
-                raise HostResourceUnavailable(f"Command execution error: {error}")
+                self.logger.debug(f"Ignoring stderr from a successful command: {error}")
 
             # Make sure output is a string
             if not isinstance(output, str):

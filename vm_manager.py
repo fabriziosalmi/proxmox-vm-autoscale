@@ -399,15 +399,22 @@ class VMResourceManager:
             raise
 
     def _get_current_vcpus(self):
-        """Read this value from `qm config`.
+        """Online vCPUs, from `qm config`.
 
-        Raises when the command itself fails, rather than substituting a
-        default: a fabricated value would be fed straight into a scaling
-        decision. `vcpus` is omitted from `qm config` when every core is online.
+        Proxmox omits `vcpus` when every core is online, so its absence means
+        `cores`, not one. Returning 1 made a scale-*up* on a 4-core guest issue
+        `-vcpus 2` and halve it, and a scale-*down* drop it straight to 1 -
+        both in a single step, past the one-step-at-a-time contract. Most VMs
+        never set `vcpus` explicitly, so most VMs were affected.
+
+        Raises when the command itself fails rather than substituting a
+        default: a fabricated value would be fed straight into a decision.
         """
         output = self._vm_config_text()
         match = re.search(r"vcpus:\s*(\d+)", output)
-        return int(match.group(1)) if match else 1
+        if match:
+            return int(match.group(1))
+        return self._get_current_cores()
 
     def _get_current_cores(self):
         """Read this value from `qm config`.

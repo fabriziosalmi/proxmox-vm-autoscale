@@ -125,6 +125,20 @@ HostResourceChecker(ssh_client)
 
 RAM is `memory.used / memory.total`, matching the Proxmox web UI.
 
+## `check_dependencies.py`
+
+A standalone script, run by the installer and safe to run at any time, that
+compares the importable package versions against `requirements.txt`.
+
+```bash
+python3 check_dependencies.py requirements.txt
+```
+
+Exits 0 when everything is satisfied and 1 when it is not, listing each gap
+with both versions. The installer treats a failure as advisory: a working
+install on the distribution's slightly older packages beats a refused one, but
+it no longer happens silently.
+
 ## `metrics.py`
 
 Prometheus text exposition over `http.server`, in a daemon thread. No third-party

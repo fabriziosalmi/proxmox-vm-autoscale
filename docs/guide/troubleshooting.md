@@ -140,6 +140,45 @@ Check `qm config 101` against your `scaling_limits`.
 
 **7. Is it in cooldown?** No log line is emitted for this. Look at the timestamp of the last `Scaled ...` line for that VM and compare against `scale_cooldown`.
 
+## The service runs but nothing ever scales
+
+If every cycle ends with an error notification and no VM ever changes, look at
+what the node writes to **stderr**:
+
+```
+[ERROR] Failed to check host resources: Command execution error:
+        user config - ignore invalid acl token 'root@pam!something'
+```
+
+That message is a *warning* printed by `pvesh` on a **successful** call — a
+stale API token entry in `/etc/pve/user.cfg` produces it, and the command still
+exits 0. Versions before this fix raised on any non-empty stderr, so the host
+gate failed for every VM, every cycle, for the lifetime of the service.
+
+Confirm on the node:
+
+```bash
+pvesh get /nodes/$(hostname)/status --output-format json >/dev/null
+echo "exit status: $?"     # 0, despite the warning on stderr
+```
+
+If you see this on an older version, upgrade. Cleaning up the stale ACL entry
+removes the noise either way.
+
+## A scale-up made the guest smaller
+
+Proxmox omits `vcpus` from `qm config` when every core is online — which is the
+default, so most VMs have no `vcpus` line at all. Versions before this fix read
+that absence as **1**, so on a four-core guest a scale-*up* issued
+`qm set -vcpus 2` and a scale-*down* went straight to 1.
+
+```bash
+qm config <vmid> | grep -E '^(cores|vcpus)'
+```
+
+No `vcpus` line means every core is online, not one. Upgrade if you are on an
+affected version; setting `vcpus` explicitly also side-steps it.
+
 ## Usage reads as "unavailable"
 
 ```

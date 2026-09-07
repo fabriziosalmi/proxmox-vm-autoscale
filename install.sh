@@ -10,6 +10,7 @@ SERVICE_FILE="vm_autoscale.service"
 CONFIG_FILE="$INSTALL_DIR/config.yaml"
 BACKUP_FILE="$BACKUP_DIR/config.yaml.backup"  # Updated backup location
 REQUIREMENTS_FILE="$INSTALL_DIR/requirements.txt"
+PYTHON_BIN="/usr/bin/python3"
 # Note: vm_autoscale.service hardcodes /usr/bin/python3 and the paths above.
 # If you change INSTALL_DIR, edit the unit file to match.
 
@@ -36,7 +37,7 @@ fi
 # Install necessary dependencies
 echo "Installing necessary dependencies..."
 apt-get update || { echo "ERROR: Failed to update package lists"; exit 1; }
-apt-get install -y python3 curl bash git python3-paramiko python3-yaml python3-requests python3-cryptography \
+apt-get install -y python3 python3-pip curl bash git python3-paramiko python3-yaml python3-requests python3-cryptography \
     || { echo "ERROR: Failed to install required packages"; exit 1; }
 
 # Which revision to install. The default is the latest release tag, not the
@@ -85,11 +86,21 @@ fi
 # otherwise complete installation.
 if [ -f "$REQUIREMENTS_FILE" ]; then
     echo "Installing Python dependencies..."
-    if ! pip3 install -r "$REQUIREMENTS_FILE"; then
+    if ! command -v pip3 >/dev/null 2>&1; then
+        echo "NOTICE: pip3 is not available; skipping it."
+        echo "        The required packages were installed via apt."
+    elif ! pip3 install -r "$REQUIREMENTS_FILE"; then
         echo "NOTICE: pip could not install into the system interpreter."
-        echo "        This is expected on Proxmox VE 8 / Debian 12+ (PEP 668)."
+        echo "        This is expected on Proxmox VE 8+ / Debian 12+ (PEP 668)."
         echo "        Continuing: the required packages were installed via apt."
     fi
+
+# Verify what is actually importable meets what the project declares. Debian
+# ships older versions than requirements.txt asks for, and with the pip step
+# non-fatal the installation would otherwise proceed silently on dependencies
+# that violate its own contract.
+echo "Verifying installed dependency versions..."
+"$PYTHON_BIN" "$INSTALL_DIR/check_dependencies.py" || true
 else
     echo "WARNING: Requirements file not found. Skipping Python dependency installation."
 fi
