@@ -100,6 +100,8 @@ But the declared floors and the installed reality do not match, and only the
 
 `qm set` failures are now detected, but QEMU accepting a command is not the same as the guest honouring it. A missing balloon driver, or a kernel that refuses a CPU hot-unplug, produces a successful command and no change inside the guest.
 
+The reverse also happens: lowering the `memory` ceiling of a running guest unplugs a DIMM, and Proxmox can report `error unplug memory module` *after* having written the new value, so the configuration and the guest disagree. The service does not use that path — a scale-down deflates the balloon instead — but it is worth knowing before running `qm set -memory` by hand on a live guest.
+
 **Workaround:** verify from inside the guest — `nproc`, `free -m` — when a change matters.
 
 ---

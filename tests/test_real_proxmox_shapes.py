@@ -115,6 +115,135 @@ class TestAbsentVcpusMeansEveryCoreIsOnline(unittest.TestCase):
         self.assertFalse(any("-vcpus 1" in c for c in issued), issued)
 
 
+# Verbatim from the testbed VM: memory is the ceiling, balloon the allocation.
+REAL_BALLOONED_CONFIG = """boot: order=ide2
+balloon: 2048
+cores: 4
+hotplug: cpu,memory,network,disk,usb
+memory: 2048
+name: vm-autoscale-testbed
+numa: 1
+vcpus: 2
+"""
+
+
+class TestMemoryIsACeilingNotAnAllocation(unittest.TestCase):
+    """`balloon` may never exceed `memory`; Proxmox rejects it outright.
+
+    Reading `memory` as the current allocation meant a scale-up computed
+    `memory + 512` and issued `qm set -balloon` with it, which the hypervisor
+    refuses with "balloon value too large (must be smaller than assigned
+    memory)". Every RAM scale-up failed on a guest where balloon equals
+    memory — the ordinary configuration, and the one this project's own
+    example produces. Found by the end-to-end suite against a real node.
+    """
+
+    def _issued(self, mgr):
+        return [c.args[0] for c in mgr.ssh_client.execute_command.call_args_list]
+
+    def test_the_balloon_target_is_the_current_allocation(self):
+        mgr = manager_for(REAL_BALLOONED_CONFIG.replace("balloon: 2048", "balloon: 1536"))
+        self.assertEqual(mgr._get_current_ram(), 1536)
+        self.assertEqual(mgr._get_memory_ceiling(), 2048)
+
+    def test_an_absent_balloon_means_the_guest_has_the_whole_ceiling(self):
+        mgr = manager_for(REAL_BALLOONED_CONFIG.replace("balloon: 2048\n", ""))
+        self.assertEqual(mgr._get_current_ram(), 2048)
+
+    def test_balloon_zero_disables_ballooning_and_means_the_ceiling(self):
+        mgr = manager_for(REAL_BALLOONED_CONFIG.replace("balloon: 2048", "balloon: 0"))
+        self.assertEqual(mgr._get_current_ram(), 2048)
+        self.assertEqual(mgr._get_balloon_value(), 0)
+
+    def test_a_balloon_is_never_set_above_the_ceiling(self):
+        """The invariant the hypervisor enforces, enforced here first."""
+        mgr = manager_for(REAL_BALLOONED_CONFIG)
+        mgr.scale_ram("up")
+
+        for command in self._issued(mgr):
+            if "-balloon" in command:
+                value = int(command.split("-balloon")[1].split()[0])
+                self.assertLessEqual(value, 2560,
+                                     f"balloon set above the ceiling: {command}")
+
+    def test_growing_past_the_ceiling_moves_both_at_once(self):
+        """Neither value may sit above the other, so neither moves alone.
+
+        Proxmox validates the resulting configuration rather than each step,
+        so one command carries both and there is no intermediate state to
+        reject.
+        """
+        mgr = manager_for(REAL_BALLOONED_CONFIG)
+        self.assertTrue(mgr.scale_ram("up"))
+
+        issued = [c for c in self._issued(mgr) if "qm set" in c]
+        self.assertEqual(len(issued), 1, issued)
+        self.assertIn("-memory 2560", issued[0])
+        self.assertIn("-balloon 2560", issued[0])
+
+    def test_growing_within_the_ceiling_only_moves_the_balloon(self):
+        mgr = manager_for(REAL_BALLOONED_CONFIG.replace("balloon: 2048", "balloon: 1024"))
+        self.assertTrue(mgr.scale_ram("up"))
+
+        issued = [c for c in self._issued(mgr) if "qm set" in c]
+        self.assertTrue(any("-balloon 1536" in c for c in issued), issued)
+        self.assertFalse(any("-memory" in c for c in issued),
+                         "the ceiling does not need raising to grow within it")
+
+    def test_shrinking_only_moves_the_balloon(self):
+        """Lowering the ceiling needs a reboot and buys nothing."""
+        mgr = manager_for(REAL_BALLOONED_CONFIG)
+        self.assertTrue(mgr.scale_ram("down"))
+
+        issued = [c for c in self._issued(mgr) if "qm set" in c]
+        self.assertTrue(any("-balloon 1536" in c for c in issued), issued)
+        self.assertFalse(any("-memory" in c for c in issued), issued)
+
+    def test_a_guest_without_hotplug_gets_a_config_change_and_a_warning(self):
+        mgr = manager_for(REAL_BALLOONED_CONFIG
+                          .replace("hotplug: cpu,memory,network,disk,usb\n", "")
+                          .replace("numa: 1\n", ""))
+        mgr.scale_ram("up")
+        issued = [c for c in self._issued(mgr) if "qm set" in c]
+        self.assertTrue(any("-memory 2560" in c for c in issued), issued)
+
+    def test_a_shrink_without_hotplug_lowers_the_balloon_with_the_ceiling(self):
+        """`qm set -memory` alone is rejected while the balloon sits above it.
+
+        The node answers "balloon value too large (must be smaller than
+        assigned memory)" and changes nothing, so a guest that cannot scale
+        live could not scale down at all.
+        """
+        mgr = manager_for(REAL_BALLOONED_CONFIG
+                          .replace("hotplug: cpu,memory,network,disk,usb\n", ""))
+        self.assertTrue(mgr.scale_ram("down"))
+
+        issued = [c for c in self._issued(mgr) if "qm set" in c]
+        self.assertEqual(len(issued), 1, issued)
+        self.assertIn("-memory 1536", issued[0])
+        self.assertIn("-balloon 1536", issued[0])
+
+    def test_an_absent_balloon_is_left_absent(self):
+        """An absent `balloon` already tracks `memory`; pinning it is a change."""
+        mgr = manager_for(REAL_BALLOONED_CONFIG
+                          .replace("balloon: 2048\n", "")
+                          .replace("hotplug: cpu,memory,network,disk,usb\n", ""))
+        mgr.scale_ram("up")
+
+        issued = [c for c in self._issued(mgr) if "qm set" in c]
+        self.assertTrue(any("-memory 2560" in c for c in issued), issued)
+        self.assertFalse(any("-balloon" in c for c in issued), issued)
+
+    def test_balloon_zero_is_never_written_back(self):
+        """`balloon: 0` is the operator's choice, not a value to overwrite."""
+        mgr = manager_for(REAL_BALLOONED_CONFIG.replace("balloon: 2048", "balloon: 0"))
+        mgr.scale_ram("up")
+
+        issued = [c for c in self._issued(mgr) if "qm set" in c]
+        self.assertTrue(any("-memory 2560" in c for c in issued), issued)
+        self.assertFalse(any("-balloon" in c for c in issued), issued)
+
+
 class TestStderrOnASuccessfulCommand(unittest.TestCase):
     """A benign warning on stderr is not a failure."""
 

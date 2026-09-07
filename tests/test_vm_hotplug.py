@@ -295,8 +295,27 @@ class TestRAMScalingWithHotplug(unittest.TestCase):
             'max_ram': 16384
         }
 
-    def test_set_ram_with_hotplug_uses_balloon(self):
-        """Test RAM scaling uses balloon when hotplug and NUMA are enabled."""
+    def test_set_ram_within_the_ceiling_uses_balloon(self):
+        """The balloon is the live path — but only under the ceiling."""
+        self.ssh_client.set_response(
+            "qm config 101",
+            "memory: 8192\nballoon: 4096\nhotplug: cpu,memory\nnuma: 1"
+        )
+        self.ssh_client.set_response(
+            "qm status 101 --verbose",
+            "status: running"
+        )
+
+        manager = VMResourceManager(self.ssh_client, "101", self.config)
+        manager._set_ram(6144)
+
+        balloon_commands = [c for c in self.ssh_client.commands if '-balloon' in c]
+        self.assertTrue(len(balloon_commands) > 0)
+        self.assertFalse([c for c in self.ssh_client.commands if '-memory' in c],
+                         "the ceiling was moved to reach a value under it")
+
+    def test_set_ram_above_the_ceiling_raises_the_ceiling(self):
+        """A balloon above `memory` is rejected by the hypervisor outright."""
         self.ssh_client.set_response(
             "qm config 101",
             "memory: 4096\nhotplug: cpu,memory\nnuma: 1"
@@ -309,9 +328,12 @@ class TestRAMScalingWithHotplug(unittest.TestCase):
         manager = VMResourceManager(self.ssh_client, "101", self.config)
         manager._set_ram(8192)
 
-        # Should use balloon for hotplug
-        balloon_commands = [c for c in self.ssh_client.commands if '-balloon' in c]
-        self.assertTrue(len(balloon_commands) > 0)
+        issued = [c for c in self.ssh_client.commands if 'qm set' in c]
+        self.assertTrue(any('-memory 8192' in c for c in issued), issued)
+        for command in issued:
+            if '-balloon' in command:
+                value = int(command.split('-balloon')[1].split()[0])
+                self.assertLessEqual(value, 8192, command)
 
     def test_set_ram_without_numa_uses_memory(self):
         """Test RAM scaling uses memory config when NUMA is not enabled."""

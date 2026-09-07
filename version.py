@@ -8,4 +8,4 @@ required going to the node and reading git history.
 Keep this in step with the git tag and with `pyproject.toml`.
 """
 
-__version__ = "1.7.1"
+__version__ = "1.7.2"
