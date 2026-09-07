@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+Both found by running the service against a real Proxmox VE 9.1.7 node — the
+first time this project has ever been exercised against real hardware. 290
+tests passed while both of these sat in the scaling path, because every
+fixture encoded the same assumptions the code did.
+
+- **A scale-up could halve a guest's online CPUs.** Proxmox omits `vcpus` from
+  `qm config` when every core is online, and `_get_current_vcpus` read that
+  absence as `1`. On a 4-core guest with all cores online, a scale-*up*
+  therefore issued `qm set -vcpus 2` — a reduction — and a scale-*down*
+  computed `max(1 - 1, 1)` and dropped it straight to 1, past the
+  one-step-at-a-time contract. Most VMs never set `vcpus` explicitly, so most
+  VMs were affected. Absence now means the core count.
+- **A benign warning on stderr disabled the host gate entirely.**
+  `check_host_resources` raised whenever stderr was non-empty, ignoring the
+  exit status it already had. A node carrying a stale API token entry prints
+  `user config - ignore invalid acl token '...'` on a **successful** call, so
+  every VM on that node was skipped every cycle, for the lifetime of the
+  service, with an error notification each time. The gate now judges by exit
+  status.
+
+### Added
+
+- `tests/test_real_proxmox_shapes.py`: 13 tests built from payloads copied
+  verbatim off a real PVE 9.1.7 node rather than invented — a `qm config` with
+  no `vcpus`, a successful command that writes to stderr, and the real
+  `/cluster/resources` JSON. 8 of them fail against the previous commit.
+
+### Note
+
+The claim in [REVIEW.md](https://github.com/fabriziosalmi/proxmox-vm-autoscale/blob/main/REVIEW.md)
+§3.4 that the old `pvesh` table scrape was fragile to version drift was not
+borne out: it still parses correctly on PVE 9.1.7. The defects that justified
+replacing it were real — the substring match on VMID and the `0.0`-on-failure
+fallback — but the format-drift argument was theoretical and is corrected here.
+
 ## [1.7.0] - 2026-09-05
 
 > **Upgrade note.** Three observable changes:
