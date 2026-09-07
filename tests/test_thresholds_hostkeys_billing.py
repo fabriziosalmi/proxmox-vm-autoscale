@@ -25,7 +25,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from metrics import build_registry
 from autoscale import VMAutoscaler
-from billing_tracker import BillingTracker, SpecChangeRecord, StateChangeRecord
+from billing_tracker import (
+    BillingTracker,
+    SpecChangeRecord,
+    StateChangeRecord,
+    utcnow,
+)
 from ssh_utils import SSHClient
 
 
@@ -297,27 +302,30 @@ class TestReportSchedule(BillingTestCase):
 
     def test_not_due_before_the_period_elapses(self):
         t = self.tracker(billing_period_days=30)
-        t.set_last_report_time(datetime.now() - timedelta(days=29))
+        t.set_last_report_time(utcnow() - timedelta(days=29))
         self.assertFalse(t.is_period_due())
 
     def test_due_once_the_period_has_elapsed(self):
         t = self.tracker(billing_period_days=30)
-        t.set_last_report_time(datetime.now() - timedelta(days=31))
+        t.set_last_report_time(utcnow() - timedelta(days=31))
         self.assertTrue(t.is_period_due())
 
     def test_the_clock_survives_a_restart(self):
         t = self.tracker(billing_period_days=30)
-        stamp = datetime.now() - timedelta(days=10)
+        stamp = utcnow() - timedelta(days=10)
         t.set_last_report_time(stamp)
 
         reloaded = self.tracker(billing_period_days=30)
         self.assertEqual(reloaded.get_last_report_time(), stamp)
 
-    def test_the_timestamp_is_persisted_to_the_data_file(self):
+    def test_the_timestamp_is_persisted_with_a_timezone(self):
+        """Naive timestamps were off by an hour across a DST boundary."""
         t = self.tracker()
         t.set_last_report_time(datetime(2026, 1, 1, 12, 0))
         with open(os.path.join(self.tmp.name, "billing_data.json")) as fh:
-            self.assertEqual(json.load(fh)["last_report_time"], "2026-01-01T12:00:00")
+            stamp = json.load(fh)["last_report_time"]
+        self.assertEqual(stamp, "2026-01-01T12:00:00+00:00")
+        self.assertIsNotNone(datetime.fromisoformat(stamp).tzinfo)
 
 
 class TestAutoscalerDrivesBilling(BillingTestCase):

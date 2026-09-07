@@ -11,11 +11,16 @@ import json
 import logging
 import os
 import subprocess
+import tempfile
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+
+
+class BillingDataError(RuntimeError):
+    """The persisted billing history exists but could not be read."""
 
 
 @dataclass
@@ -85,6 +90,27 @@ class BillingReport:
         }
 
 
+def utcnow() -> datetime:
+    """Timezone-aware current time.
+
+    Records used naive `datetime.now()`, so any period spanning a DST
+    transition was off by an hour with no way to detect it after the fact.
+    """
+    return datetime.now(timezone.utc)
+
+
+def as_aware(value: datetime) -> datetime:
+    """Attach UTC to a naive datetime, leaving aware ones untouched.
+
+    Data written before timestamps became aware is naive on disk; treating it
+    as UTC is the only interpretation that keeps old and new records
+    comparable.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 class BillingTracker:
     """
     Tracks VM resource usage and calculates billing for autoscaled resources.
@@ -109,6 +135,9 @@ class BillingTracker:
         # When the last period report was emitted, so the service knows when
         # the next one is due across restarts.
         self._last_report_time: Optional[datetime] = None
+        # Set when the on-disk history could not be read. Writes stay disabled
+        # for the rest of the run so an empty tracker cannot clobber it.
+        self._writes_disabled = False
         
         # Billing parameters
         self.cost_per_cpu_hour = self.billing_config.get('cost_per_cpu_core_per_hour', 0.01)
@@ -129,7 +158,14 @@ class BillingTracker:
         return os.path.join(self.csv_output_dir, 'billing_data.json')
     
     def _load_data(self) -> None:
-        """Load persisted billing data from disk."""
+        """Load persisted billing data from disk.
+
+        A failure here is not recoverable by carrying on: the tracker would
+        start empty and the next `_save_data` would overwrite the damaged file
+        with that empty state, destroying the history permanently. Instead the
+        damaged file is preserved under a `.corrupt-<timestamp>` name, writes
+        are disabled, and the failure is raised to the caller.
+        """
         data_file = self._get_data_file_path()
         if os.path.exists(data_file):
             try:
@@ -140,7 +176,7 @@ class BillingTracker:
                 for vm_id, records in data.get('spec_changes', {}).items():
                     self._spec_changes[vm_id] = [
                         SpecChangeRecord(
-                            timestamp=datetime.fromisoformat(r['timestamp']),
+                            timestamp=as_aware(datetime.fromisoformat(r['timestamp'])),
                             cpu_cores=r['cpu_cores'],
                             ram_mb=r['ram_mb']
                         ) for r in records
@@ -150,7 +186,7 @@ class BillingTracker:
                 for vm_id, records in data.get('state_changes', {}).items():
                     self._state_changes[vm_id] = [
                         StateChangeRecord(
-                            timestamp=datetime.fromisoformat(r['timestamp']),
+                            timestamp=as_aware(datetime.fromisoformat(r['timestamp'])),
                             state=r['state']
                         ) for r in records
                     ]
@@ -159,14 +195,42 @@ class BillingTracker:
 
                 last_report = data.get('last_report_time')
                 if last_report:
-                    self._last_report_time = datetime.fromisoformat(last_report)
+                    self._last_report_time = as_aware(datetime.fromisoformat(last_report))
 
                 self.logger.debug(f"Loaded billing data from {data_file}")
             except Exception as e:
-                self.logger.warning(f"Failed to load billing data: {e}")
-    
+                quarantined = f"{data_file}.corrupt-{utcnow():%Y%m%dT%H%M%SZ}"
+                try:
+                    os.replace(data_file, quarantined)
+                    kept = f" The unreadable file was kept as {quarantined}."
+                except OSError as move_error:
+                    quarantined = None
+                    kept = f" It could not be moved aside either: {move_error}."
+
+                self._writes_disabled = True
+                self.logger.critical(
+                    f"Billing data at {data_file} could not be read: {e}.{kept} "
+                    "Billing writes are disabled for this run so the history is "
+                    "not overwritten with empty state."
+                )
+                raise BillingDataError(
+                    f"Unreadable billing data at {data_file}: {e}"
+                ) from e
+
     def _save_data(self) -> None:
-        """Persist billing data to disk."""
+        """Persist billing data atomically.
+
+        Written to a temporary file in the same directory, flushed, fsynced and
+        renamed over the target, so a process killed mid-write leaves the
+        previous file intact. The previous implementation opened the target
+        with mode `w`, which truncates before the first byte is written - and
+        since the service has no signal handling, being killed mid-write is the
+        normal stop path, not an edge case.
+        """
+        if self._writes_disabled:
+            self.logger.debug("Billing writes are disabled; skipping save.")
+            return
+
         data_file = self._get_data_file_path()
         try:
             data = {
@@ -183,8 +247,26 @@ class BillingTracker:
                     self._last_report_time.isoformat() if self._last_report_time else None
                 ),
             }
-            with open(data_file, 'w') as f:
-                json.dump(data, f, indent=2)
+            directory = os.path.dirname(data_file) or '.'
+            fd, tmp_path = tempfile.mkstemp(
+                dir=directory, prefix='.billing_data-', suffix='.tmp'
+            )
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    json.dump(data, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.chmod(tmp_path, 0o600)
+                os.replace(tmp_path, data_file)
+            except BaseException:
+                # BaseException so a SystemExit or KeyboardInterrupt mid-write
+                # still removes the partial file rather than leaving litter.
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+
             self.logger.debug(f"Saved billing data to {data_file}")
         except Exception as e:
             self.logger.error(f"Failed to save billing data: {e}")
@@ -195,7 +277,7 @@ class BillingTracker:
 
     def set_last_report_time(self, when: Optional[datetime] = None) -> None:
         """Record that a period report has just been generated."""
-        self._last_report_time = when or datetime.now()
+        self._last_report_time = as_aware(when) if when else utcnow()
         self._save_data()
 
     def is_period_due(self, now: Optional[datetime] = None) -> bool:
@@ -204,7 +286,7 @@ class BillingTracker:
         The first call starts the clock rather than emitting an empty report
         for a period the service was not running for.
         """
-        now = now or datetime.now()
+        now = as_aware(now) if now else utcnow()
         if self._last_report_time is None:
             self.set_last_report_time(now)
             return False
@@ -231,7 +313,7 @@ class BillingTracker:
             self._spec_changes[vm_id] = []
         
         record = SpecChangeRecord(
-            timestamp=timestamp or datetime.now(),
+            timestamp=as_aware(timestamp) if timestamp else utcnow(),
             cpu_cores=cpu_cores,
             ram_mb=ram_mb
         )
@@ -261,7 +343,7 @@ class BillingTracker:
             self._state_changes[vm_id] = []
         
         record = StateChangeRecord(
-            timestamp=timestamp or datetime.now(),
+            timestamp=as_aware(timestamp) if timestamp else utcnow(),
             state=state
         )
         self._state_changes[vm_id].append(record)
@@ -285,6 +367,10 @@ class BillingTracker:
         """
         vm_id = str(vm_id)
         vm_name = self._vm_names.get(vm_id, f"VM-{vm_id}")
+
+        # Callers may hand in naive bounds; records on disk are UTC-aware.
+        period_start = as_aware(period_start)
+        period_end = as_aware(period_end)
         
         # Records that actually happened inside the period. These are what the
         # report lists, because they are the real events.
@@ -583,7 +669,7 @@ class BillingTracker:
             BillingReport if successful, None otherwise
         """
         try:
-            period_end = datetime.now()
+            period_end = utcnow()
             period_start = period_end - timedelta(days=self.billing_period_days)
             
             report = self.calculate_billing_period(vm_id, period_start, period_end)

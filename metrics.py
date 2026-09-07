@@ -201,7 +201,9 @@ def build_registry() -> MetricsRegistry:
     r.describe("vm_autoscale_up", "gauge",
                "1 when the autoscaler is running.")
     r.describe("vm_autoscale_build_info", "gauge",
-               "Build information; the value is always 1.")
+               "Version and mode of the running service; the value is always 1.")
+    r.describe("vm_autoscale_billing_degraded", "gauge",
+               "1 when billing was disabled because its history was unreadable.")
     r.describe("vm_autoscale_cycles_total", "counter",
                "Polling cycles completed since start.")
     r.describe("vm_autoscale_cycle_duration_seconds", "gauge",

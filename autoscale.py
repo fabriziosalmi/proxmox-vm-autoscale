@@ -4,17 +4,21 @@ import requests
 import smtplib
 import logging
 import logging.config
+import signal
+import threading
 import time
 import re
 import sys
+from config_schema import ConfigurationInvalid, validate as validate_config
 from ssh_utils import DEFAULT_KNOWN_HOSTS, SSHClient
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from vm_manager import VMResourceManager
 from host_resource_checker import HostResourceChecker
-from billing_tracker import BillingTracker
+from billing_tracker import BillingDataError, BillingTracker
 from metrics import MetricsServer, build_registry
+from version import __version__
 from functools import wraps
 from typing import Union, List, Optional, Dict, Any
 
@@ -161,6 +165,7 @@ class VMAutoscaler:
     def __init__(self, config_path: str, logging_config_path: Optional[str] = None):
         self.config = self._load_config(config_path)
         self.logger = self._setup_logging(logging_config_path)
+        self._report_config_warnings()
         self.notification_manager = NotificationManager(self.config, self.logger)
         # VMResourceManager instances are reused across polling cycles so the
         # scaling cooldown survives between iterations of the main loop, and so
@@ -172,7 +177,8 @@ class VMAutoscaler:
         self.dry_run = bool(self.config.get('dry_run', False))
         self.metrics = build_registry()
         self.metrics.set('vm_autoscale_build_info', 1,
-                         {'dry_run': str(self.dry_run).lower()})
+                         {'version': __version__,
+                          'dry_run': str(self.dry_run).lower()})
         self._metrics_server = self._start_metrics_server()
         if self.dry_run:
             self.logger.warning(
@@ -180,13 +186,49 @@ class VMAutoscaler:
                 "Scaling decisions are logged as they would be taken."
             )
         
+        # Set by SIGTERM/SIGINT so the loop can stop between VMs instead of
+        # being killed wherever it happens to be - which, with no handler at
+        # all, meant every `systemctl stop` was an abrupt kill.
+        self._shutdown = threading.Event()
+        self._install_signal_handlers()
+
         # Initialize billing tracker if enabled
         self.billing_enabled = self.config.get('billing', {}).get('enabled', False)
+        self.billing_tracker = None
         if self.billing_enabled:
-            self.billing_tracker = BillingTracker(self.config, self.logger)
-            self.logger.info("Billing tracking enabled")
-        else:
-            self.billing_tracker = None
+            try:
+                self.billing_tracker = BillingTracker(self.config, self.logger)
+                self.logger.info("Billing tracking enabled")
+            except BillingDataError as e:
+                # Refusing to start would stop the fleet scaling because of a
+                # billing file. Refusing to *write* preserves the history and
+                # keeps the primary job running.
+                self.logger.critical(
+                    f"Billing is enabled but its history could not be read: {e}. "
+                    "Continuing without billing so scaling is not interrupted. "
+                    "The unreadable file has been preserved and nothing will "
+                    "overwrite it."
+                )
+                self.metrics.set('vm_autoscale_billing_degraded', 1)
+
+    def _install_signal_handlers(self) -> None:
+        """Stop cleanly on SIGTERM and SIGINT.
+
+        `run()` only ever caught KeyboardInterrupt, which is SIGINT. systemctl
+        stop sends SIGTERM, whose default disposition terminates the process
+        immediately - including mid-write of the billing state file.
+        """
+        def handle(signum, _frame):
+            name = signal.Signals(signum).name
+            self.logger.info(f"Received {name}; finishing the current VM and stopping.")
+            self._shutdown.set()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(sig, handle)
+            except ValueError:
+                # Not the main thread (tests, embedding). Nothing to install.
+                self.logger.debug(f"Could not install a handler for {sig!r}.")
 
     @staticmethod
     def _load_config(config_path: str) -> Dict[str, Any]:
@@ -196,14 +238,19 @@ class VMAutoscaler:
         
         with open(config_path, 'r') as config_file:
             config = yaml.safe_load(config_file)
-        
-        # Validate essential configuration
-        required_sections = ['scaling_thresholds', 'scaling_limits', 'proxmox_hosts', 'virtual_machines']
-        missing_sections = [section for section in required_sections if section not in config]
-        if missing_sections:
-            raise ConfigurationError(f"Missing required configuration sections: {', '.join(missing_sections)}")
-            
+
+        # Full validation: types, ranges, unknown keys, referential integrity.
+        # The previous check only asserted that four top-level keys existed,
+        # which is why a documented key could be written, never read, and never
+        # complained about.
+        warnings = validate_config(config)
+        config['_validation_warnings'] = warnings
         return config
+
+    def _report_config_warnings(self) -> None:
+        """Log what validation flagged as suspicious but not fatal."""
+        for warning in self.config.pop('_validation_warnings', []):
+            self.logger.warning(f"Configuration: {warning}")
 
     def _setup_logging(self, logging_config_path: Optional[str]) -> logging.Logger:
         """Setup logging configuration."""
@@ -592,15 +639,12 @@ class VMAutoscaler:
             self.logger.warning(f"Failed to record billing spec for VM {vm_id}: {e}")
 
     def run(self) -> None:
-        """Main execution loop."""
-        self.logger.info("Starting VM Autoscaler")
-        while True:
+        """Main execution loop. Returns when a shutdown signal is received."""
+        self.logger.info(f"Starting VM Autoscaler {__version__}")
+        while not self._shutdown.is_set():
             try:
                 cycle_started = time.monotonic()
-                for host in self.config['proxmox_hosts']:
-                    for vm in self.config['virtual_machines']:
-                        if vm['proxmox_host'] == host['name'] and vm.get('scaling_enabled', False):
-                            self.process_vm(host, vm)
+                self._run_cycle()
 
                 self._maybe_generate_billing_reports()
 
@@ -610,11 +654,12 @@ class VMAutoscaler:
                 self.metrics.set('vm_autoscale_last_cycle_timestamp_seconds', time.time())
 
                 check_interval = self.config.get('check_interval', 300)  # Default to 5 minutes
-                time.sleep(check_interval)
-            
+                # Waiting on the event rather than sleeping means a stop signal
+                # is acted on immediately instead of up to check_interval later.
+                self._shutdown.wait(check_interval)
+
             except KeyboardInterrupt:
-                self.logger.info("Shutting down VM Autoscaler")
-                break
+                self._shutdown.set()
             except Exception as e:
                 self.metrics.inc('vm_autoscale_cycle_errors_total')
                 self.logger.error(f"Unexpected error in main loop: {e}")
@@ -622,7 +667,26 @@ class VMAutoscaler:
                     f"Unexpected error in VM Autoscaler: {e}",
                     priority=10
                 )
-                time.sleep(60)  # Wait before retrying
+                self._shutdown.wait(60)  # Wait before retrying
+
+        self.shutdown()
+
+    def _run_cycle(self) -> None:
+        """One pass over every enabled VM, abandoned early on a stop signal."""
+        for host in self.config['proxmox_hosts']:
+            for vm in self.config['virtual_machines']:
+                if self._shutdown.is_set():
+                    return
+                if vm['proxmox_host'] == host['name'] and vm.get('scaling_enabled', False):
+                    self.process_vm(host, vm)
+
+    def shutdown(self) -> None:
+        """Release what the process owns before exiting."""
+        self.logger.info("Shutting down VM Autoscaler")
+        self.metrics.set('vm_autoscale_up', 0)
+        if self._metrics_server is not None:
+            self._metrics_server.stop()
+            self._metrics_server = None
 
 def main():
     """Entry point of the application."""
@@ -632,6 +696,11 @@ def main():
             logging_config_path="/usr/local/bin/vm_autoscale/logging_config.json"
         )
         autoscaler.run()
+    except ConfigurationInvalid as e:
+        # Every problem at once, one per line: one restart is enough to see
+        # all of them rather than peeling them off one at a time.
+        logging.critical("Refusing to start. %s", e)
+        sys.exit(2)
     except Exception as e:
         logging.critical(f"Failed to start VM Autoscaler: {e}")
         sys.exit(1)

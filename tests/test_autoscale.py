@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from metrics import build_registry
 from autoscale import NotificationManager, ConfigurationError, VMAutoscaler
+from config_schema import ConfigurationInvalid
 
 
 # ---------------------------------------------------------------------------
@@ -44,14 +45,29 @@ def minimal_config(**overrides):
 
 
 def full_autoscaler_config():
+    """A configuration that actually validates.
+
+    This fixture used to carry an empty `scaling_limits`, no hosts and no VMs,
+    and passed because the old loader only checked that four keys existed. It
+    was never a usable configuration.
+    """
     return {
         "scaling_thresholds": {
             "cpu": {"high": 80, "low": 20},
             "ram": {"high": 80, "low": 20},
         },
-        "scaling_limits": {},
-        "proxmox_hosts": [],
-        "virtual_machines": [],
+        "scaling_limits": {
+            "min_cores": 1, "max_cores": 8,
+            "min_ram_mb": 1024, "max_ram_mb": 16384,
+        },
+        "proxmox_hosts": [
+            {"name": "pve1", "host": "10.0.0.11", "ssh_user": "root",
+             "ssh_key": "/root/.ssh/id_ed25519", "ssh_port": 22},
+        ],
+        "virtual_machines": [
+            {"vm_id": 101, "proxmox_host": "pve1", "scaling_enabled": True,
+             "cpu_scaling": True, "ram_scaling": True},
+        ],
         "host_limits": {"max_host_cpu_percent": 90, "max_host_ram_percent": 90},
     }
 
@@ -186,15 +202,33 @@ class TestLoadConfig(unittest.TestCase):
 
     def test_raises_on_missing_required_sections(self):
         path = self._write_yaml({"scaling_thresholds": {}})
-        with self.assertRaises(ConfigurationError):
+        with self.assertRaises(ConfigurationInvalid):
             VMAutoscaler._load_config(path)
         os.unlink(path)
+
+    def test_reports_every_problem_at_once(self):
+        """One restart should be enough to see all of them."""
+        path = self._write_yaml({"scaling_thresholds": {}})
+        with self.assertRaises(ConfigurationInvalid) as ctx:
+            VMAutoscaler._load_config(path)
+        os.unlink(path)
+        self.assertGreater(len(ctx.exception.errors), 3)
 
     def test_loads_valid_config(self):
         path = self._write_yaml(full_autoscaler_config())
         cfg = VMAutoscaler._load_config(path)
         self.assertIn("proxmox_hosts", cfg)
         os.unlink(path)
+
+    def test_rejects_a_vm_pointing_at_an_unknown_host(self):
+        """This used to skip the VM forever with no message anywhere."""
+        cfg = full_autoscaler_config()
+        cfg["virtual_machines"][0]["proxmox_host"] = "pve-typo"
+        path = self._write_yaml(cfg)
+        with self.assertRaises(ConfigurationInvalid) as ctx:
+            VMAutoscaler._load_config(path)
+        os.unlink(path)
+        self.assertTrue(any("pve-typo" in e for e in ctx.exception.errors))
 
 
 # ---------------------------------------------------------------------------
