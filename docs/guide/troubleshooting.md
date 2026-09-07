@@ -211,19 +211,30 @@ Before the switch to JSON, an unreadable metric was reported as `0.0`, which rea
 ### RAM changes but the guest does not see it
 
 ```
-[WARNING] VM 101 has memory hotplug enabled but NUMA is disabled.
-          Memory changes will require a reboot.
+[WARNING] VM 101: RAM set to 4096 MB, but the guest cannot take the change
+          live. NUMA is disabled; enable it and reboot the guest once.
+          It applies on the next reboot.
 ```
 
-Enable NUMA and **reboot the guest** — NUMA is a topology change and does not apply live.
+The warning names the one thing standing in the way. NUMA in particular is a topology change and does not apply live, so it needs a single power cycle before live memory scaling works at all.
 
-If both are enabled and it still does not take effect, the balloon driver is missing or wedged inside the guest:
+If nothing is named and it still does not take effect, the balloon driver is missing or wedged inside the guest:
 
 ```bash
 # inside the guest
 lsmod | grep virtio_balloon
 dmesg | grep -i balloon
 ```
+
+### `balloon value too large (must be smaller than assigned memory)`
+
+`memory` is the ceiling and `balloon` is the allocation; Proxmox rejects any configuration where the second exceeds the first. Seeing this in the service log means a `qm set` was constructed that would have crossed them — see [Hotplug and live scaling](/guide/hotplug#scaling-ram) for which command the service issues when. Check where the two currently sit:
+
+```bash
+qm config 101 | grep -E '^(memory|balloon):'
+```
+
+A guest whose `balloon` sits at its `memory` is at its ceiling: growing it raises both together.
 
 ### CPU count does not change inside the guest
 
@@ -236,13 +247,15 @@ Scaling `cores` requires a reboot; only `vcpus` is live. Look at which one the l
 
 Removing a vCPU is also unreliable — Windows guests in particular often refuse. QEMU accepts the command and the service reports success either way.
 
-### `qm set` fails but the log says it succeeded
+### Confirming a change actually landed
 
-Command results are not checked for a non-zero exit status before the success line is written. Confirm on the node:
+A `qm set` that exits non-zero now raises instead of being written up as a success, so a failure appears in the log as an error naming the command and the node's own message. To confirm the resulting state on the node:
 
 ```bash
 qm config 101 | grep -E 'cores|vcpus|memory|balloon'
 ```
+
+One case still deserves the check: lowering the ceiling of a running guest unplugs a DIMM, and Proxmox may report a failure *after* having written the new value. The service avoids that path — a scale-down moves the balloon instead — but a manual `qm set -memory` can land there.
 
 ## It scales up and down constantly
 

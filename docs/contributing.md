@@ -34,7 +34,31 @@ pytest tests/test_vm_hotplug.py -v           # one file
 pytest -k cooldown -v                        # by name
 ```
 
-332 tests, in about three seconds. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
+344 tests, in about four seconds. CI runs them on Python 3.10 through 3.12, plus `shellcheck -S warning install.sh`.
+
+### The end-to-end suite
+
+A separate suite drives a **real Proxmox node as root** and resizes a **real VM**. It is marked `e2e`, skipped by default, and will never be in CI — CI has no hypervisor to talk to.
+
+```bash
+export VMA_E2E_HOST=proxmox.example.internal
+export VMA_E2E_KEY=~/.ssh/id_rsa
+export VMA_E2E_VMID=9001
+pytest -m e2e -v
+```
+
+`VMA_E2E_USER` (default `root`), `VMA_E2E_PORT`, `VMA_E2E_PASSWORD` and `VMA_E2E_KNOWN_HOSTS` are also read. Nothing is configured in the repository, so no node address reaches a commit. Without `VMA_E2E_HOST` the suite skips; a *partial* configuration fails loudly instead, because silently skipping on a typo is the exact class of defect this project has spent several releases removing.
+
+Two guards stand between a mistyped VMID and someone's production guest:
+
+- the suite refuses any VM whose **name does not contain `testbed`**;
+- it restores a fixed baseline before and after every test, asserts the VM is actually at that baseline, and leaves the guest powered off if it found it that way.
+
+Point it at a disposable VM and nothing else.
+
+The entry criterion for a test here is that **a mock could not have told us**. Everything a fake can answer belongs in the unit suite; duplicating that coverage buys nothing and costs a real VM. The suite exists because it earns its keep: a single session against real hardware found three defects while 303 mocked tests passed, and its own first run found a fourth — every RAM scale-up was being rejected by the hypervisor on the ordinary guest configuration, because every fixture encoded the same wrong assumption the code did.
+
+When it finds something, the fix lands with a **unit** test built from the shape the node actually returned — `tests/test_real_proxmox_shapes.py` holds those, copied verbatim — so the regression is caught in CI rather than only on hardware.
 
 ## What a good change looks like
 

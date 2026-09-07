@@ -30,10 +30,23 @@ The trap is the last row. NUMA is part of the virtual machine topology, so turni
 |---|---|---|
 | **vCPU count** (`-vcpus`) | Yes | n/a |
 | **Core count** (`-cores`) | **No — always needs a reboot** | Needs a reboot |
-| **RAM** (`-balloon`) | Yes | n/a |
-| **RAM** (`-memory`) | Needs a reboot | Needs a reboot |
+| **RAM allocation** (`-balloon`) | Yes | n/a |
+| **RAM ceiling** (`-memory`), raised | Yes, a DIMM is hotplugged | Needs a reboot |
+| **RAM ceiling** (`-memory`), lowered | Only on the next boot | Needs a reboot |
 
 `cores` is the number of CPUs the virtual motherboard has sockets for; `vcpus` is how many of them are plugged in right now. Only the second can change on a running guest, and it can never exceed the first.
+
+Memory has the same shape. `memory` is the **ceiling** — the most the guest may ever have — and `balloon` is the **allocation**, the amount it actually has right now. Proxmox refuses any configuration where the second exceeds the first, in either direction:
+
+```
+qm set 101 -balloon 4096     # with memory: 2048
+balloon value too large (must be smaller than assigned memory)
+
+qm set 101 -memory 1024      # with balloon: 2048
+balloon value too large (must be smaller than assigned memory)
+```
+
+An absent `balloon` line is not zero — it means the allocation tracks the ceiling. `balloon: 0` is different again: it switches the balloon device off, and then `memory` is the allocation.
 
 ## How the service uses this
 
@@ -69,13 +82,22 @@ Removing a vCPU is far less reliable than adding one. Linux generally copes; som
 
 ### Scaling RAM
 
-With hotplug **and** NUMA on a running guest, the service sets the **balloon** value:
+Because the two values constrain each other, the service picks its command from where the target sits relative to the ceiling:
 
-```bash
-qm set <vmid> -balloon 4096
+```
+if running and hotplug:memory and numa and ballooning
+    if target <= memory   → qm set -balloon <target>              # live
+    else                  → qm set -memory <target> -balloon <target>
+                                                                  # live, DIMM hotplug
+else
+    qm set -memory <target> [-balloon <target>]                   # warning logged
 ```
 
-The balloon driver inside the guest inflates or deflates to reach the target, so memory changes without a reboot. In every other case the service falls back to `-memory`, which only applies on next boot, and logs a warning saying so.
+Under the ceiling the balloon alone reaches the target and the guest sees the change immediately. Above it the ceiling has to rise first, so both move in a single command — Proxmox validates the resulting configuration rather than each step, which means there is no intermediate state for it to reject.
+
+A scale **down** never lowers the ceiling of a running guest. Lowering it unplugs a DIMM, which the guest is entitled to refuse; on the project's own testbed Proxmox answered `error unplug memory module` *after* writing the new value, leaving the configuration and the guest disagreeing. Deflating the balloon returns the memory just as effectively, and a ceiling nobody reaches costs nothing.
+
+Where the guest cannot take the change live, the explicit balloon target travels with the ceiling. Without that, a guest rebooting into a higher ceiling would stay pinned at its old allocation and never see the memory it was given. An absent `balloon` line and `balloon: 0` are both left alone: the first already tracks `memory`, and the second is an operator's deliberate choice.
 
 ::: warning The balloon driver has to be present and working
 Ballooning needs `virtio_balloon` in the guest. Without it — most bare Windows installs before the VirtIO drivers are installed, some minimal container-style images — the command succeeds at the QEMU level and nothing happens inside the guest. Reclaiming memory from a guest that is genuinely using it can also drive it into swap or trigger the OOM killer.

@@ -7,7 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-09-07
+
+> **Upgrade note.** RAM scaling did not work on a guest whose `balloon` sits at
+> its `memory`, which is the default and the state the shipped example
+> configuration produces: every scale-up was rejected by the hypervisor. CPU
+> scaling was unaffected. No configuration changes are required.
+
+### Fixed
+- **RAM scaling was rejected by the hypervisor on the ordinary guest
+  configuration.** `memory` is a *ceiling* and `balloon` is the *allocation*;
+  Proxmox refuses any configuration where the second exceeds the first. The
+  service read `memory` as the current value and always wrote `balloon`, so a
+  scale-up computed `memory + 512` and issued `qm set -balloon` with it —
+  answered by `balloon value too large (must be smaller than assigned memory)`
+  on every guest whose balloon sits at its ceiling, which is the default and
+  the state this project's own example configuration produces. `vm_manager.py`
+  now reads the balloon as the allocation, moves the balloon alone under the
+  ceiling, and raises both in a single command when the target is above it.
+- **A guest that could not scale live could not scale down at all.** Where
+  ballooning was not available the service issued `qm set -memory` alone, which
+  Proxmox rejects for the same reason while the balloon sits above the new
+  ceiling — and changes nothing. An explicit balloon target now travels with
+  the ceiling, which also means a guest rebooting into a *higher* ceiling
+  actually receives the memory instead of staying pinned at its old
+  allocation. An absent `balloon` line already tracks `memory` and `balloon: 0`
+  is a deliberate choice, so neither is written back.
+- A scale-down no longer lowers the ceiling of a running guest. That unplugs a
+  DIMM, which the guest may refuse: the testbed returned
+  `error unplug memory module` *after* Proxmox had written the new value,
+  leaving the configuration and the guest disagreeing. Deflating the balloon
+  returns the memory just as well, and a ceiling nobody reaches costs nothing.
+- `vm_autoscale_billing_degraded` was exported and never documented;
+  `config_schema.py` and `version.py` were missing from the module reference and
+  `check_dependencies.py` from the architecture page. All four were found by the
+  documentation tests on their first run, which is the point of them.
+
 ### Added
+- `tests/e2e_support.py` and `tests/test_e2e_real_node.py`: an end-to-end suite
+  that drives a real Proxmox node and resizes a real VM. Marked `e2e` and
+  skipped unless `VMA_E2E_HOST` is set; it is not in CI and never will be,
+  since CI has no hypervisor to talk to. The entry criterion for a test is that
+  a mock could not have told us. It refuses any VM whose name does not contain
+  `testbed`, restores a fixed baseline around every test and asserts the VM is
+  actually at it, and leaves the guest powered off if it found it that way.
+  See [Contributing](https://fabriziosalmi.github.io/proxmox-vm-autoscale/contributing).
+- `TestMemoryIsACeilingNotAnAllocation` in `tests/test_real_proxmox_shapes.py`,
+  built from a configuration copied verbatim off the node, so the defect above
+  is caught in CI rather than only on hardware.
 - `tests/test_docs_match_code.py`: the documentation can no longer drift away
   from the code in silence. The build fails on a configuration key the schema
   accepts but the reference does not mention, a metric the service exports but
@@ -17,11 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   once needed correcting in a single change, and every stale claim was found
   after the code had already moved.
 
-### Fixed
-- `vm_autoscale_billing_degraded` was exported and never documented;
-  `config_schema.py` and `version.py` were missing from the module reference and
-  `check_dependencies.py` from the architecture page. All four were found by the
-  new tests on their first run, which is the point of them.
+### Changed
+- The warning logged when memory cannot be applied live now names the single
+  thing standing in the way — the guest is stopped, `hotplug: memory` is off,
+  or NUMA is disabled — instead of describing two of them at once.
 
 ## [1.7.1] - 2026-09-07
 
@@ -483,6 +529,7 @@ Recorded here because the original release notes overstate what shipped:
 - Scaling cooldown periods
 
 [Unreleased]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.7.1...HEAD
+[1.7.2]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/fabriziosalmi/proxmox-vm-autoscale/compare/v1.5.0...v1.6.0

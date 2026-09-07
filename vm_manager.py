@@ -457,16 +457,37 @@ class VMResourceManager:
         """Retrieve minimum allowed CPU cores."""
         return self._scaling_limit("min_cores", "min_cores", 1)
 
-    def _get_current_ram(self):
-        """Read this value from `qm config`.
+    def _get_memory_ceiling(self):
+        """`memory` from `qm config` — the most the guest may ever have.
 
-        Raises when the command itself fails, rather than substituting a
-        default: a fabricated value would be fed straight into a scaling
-        decision. `memory` is omitted from `qm config` at the Proxmox default of 512 MB.
+        This is a ceiling, not an allocation. `balloon` cannot exceed it:
+        Proxmox rejects that outright with "balloon value too large".
         """
         output = self._vm_config_text()
         match = re.search(r"memory:\s*(\d+)", output)
+        # `memory` is omitted from `qm config` at the Proxmox default of 512 MB.
         return int(match.group(1)) if match else 512
+
+    def _get_current_ram(self):
+        """What the guest actually has right now, in MB.
+
+        The balloon target is the allocation; `memory` is only the ceiling it
+        may grow to. Reading `memory` as the current value meant a scale-up
+        computed `memory + 512` and issued `qm set -balloon <that>`, which
+        Proxmox rejects because a balloon may not exceed its ceiling — so RAM
+        scale-up failed outright on every guest where `balloon` equals
+        `memory`, which is the ordinary configuration and the one this
+        project's own example produces.
+
+        Proxmox omits `balloon` when the target equals `memory`, and
+        `balloon: 0` disables ballooning, in which case `memory` is the
+        allocation.
+        """
+        balloon = self._get_balloon_value()
+        ceiling = self._get_memory_ceiling()
+        if balloon is None or balloon == 0:
+            return ceiling
+        return balloon
 
     def _get_max_ram(self):
         """Retrieve maximum allowed RAM in MB."""
@@ -503,39 +524,99 @@ class VMResourceManager:
         return int(match.group(1)) if match else None
 
     def _set_ram(self, ram):
-        """Set the RAM for the VM, using balloon for hotplug if available."""
+        """Give the guest `ram` MB, live where the guest allows it.
+
+        Two knobs, and confusing them is why RAM scaling used to fail outright
+        on an ordinary guest:
+
+        - `memory` is the **ceiling** — the most the guest may ever have.
+        - `balloon` is the **allocation** — the target it currently sits at.
+
+        Proxmox refuses any `balloon` above its `memory`, in either direction:
+        raising the balloon past the ceiling and lowering the ceiling under the
+        balloon are both rejected with "balloon value too large". So the two
+        values are moved together whenever the ceiling has to move at all.
+
+        On a running guest the ceiling is raised by hotplugging a DIMM, which
+        works. Lowering it unplugs one, which the guest is free to refuse — the
+        testbed returned `error unplug memory module` *after* writing the new
+        value, leaving the configuration and the guest disagreeing. So a
+        shrink never touches the ceiling while the guest is up: the balloon
+        alone gives the memory back, and a ceiling nobody reaches costs
+        nothing.
+        """
         try:
             is_running = self.is_vm_running()
             _, memory_hotplug = self._check_hotplug_enabled()
             numa_enabled = self._check_numa_enabled()
+            ceiling = self._get_memory_ceiling()
+            balloon = self._get_balloon_value()
+            ballooning = balloon != 0
+            dimm_hotplug = is_running and memory_hotplug and numa_enabled
 
-            if is_running and memory_hotplug and numa_enabled:
-                # Use balloon for immediate effect on running VMs with hotplug
+            if ballooning and dimm_hotplug and ram <= ceiling:
+                # Room under the ceiling: the balloon alone reaches the target,
+                # and it is the only mechanism that shrinks reliably.
                 self._run(f"qm set {self.vm_id} -balloon {ram}", mutating=True)
-                self.logger.info(f"RAM balloon set to {ram} MB for VM {self.vm_id} (hotplug applied).")
-            elif is_running and memory_hotplug and not numa_enabled:
-                # Hotplug enabled but NUMA not - this won't work properly
-                self.logger.warning(
-                    f"VM {self.vm_id} has memory hotplug enabled but NUMA is disabled. "
-                    "Memory changes will require a reboot. Enable NUMA for live memory scaling."
+                self.logger.info(
+                    f"RAM balloon set to {ram} MB for VM {self.vm_id} (hotplug applied)."
                 )
-                self._run(f"qm set {self.vm_id} -memory {ram}", mutating=True)
-                self.logger.info(f"RAM config set to {ram} MB for VM {self.vm_id} (requires reboot).")
-            elif is_running:
-                # No hotplug - warn and set config only
-                self.logger.warning(
-                    f"VM {self.vm_id} does not have memory hotplug enabled. "
-                    "Memory changes will require a reboot. Enable 'hotplug: memory' and NUMA for live scaling."
+                return
+
+            if dimm_hotplug:
+                # Past the ceiling, or no balloon to move: raise the ceiling
+                # itself. Both values go in one command because Proxmox
+                # validates the result, not the steps.
+                self._run(f"qm set {self.vm_id} {self._memory_settings(ram, balloon)}",
+                          mutating=True)
+                self.logger.info(
+                    f"RAM set to {ram} MB for VM {self.vm_id} (hotplug applied)."
                 )
-                self._run(f"qm set {self.vm_id} -memory {ram}", mutating=True)
-                self.logger.info(f"RAM config set to {ram} MB for VM {self.vm_id} (requires reboot).")
+                return
+
+            self._run(f"qm set {self.vm_id} {self._memory_settings(ram, balloon)}",
+                      mutating=True)
+            if is_running:
+                self.logger.warning(
+                    f"VM {self.vm_id}: RAM set to {ram} MB, but the guest cannot "
+                    "take the change live. "
+                    f"{self._live_memory_blocker(is_running, memory_hotplug, numa_enabled)} "
+                    "It applies on the next reboot."
+                )
             else:
-                # VM not running - just set memory config
-                self._run(f"qm set {self.vm_id} -memory {ram}", mutating=True)
                 self.logger.info(f"RAM set to {ram} MB for VM {self.vm_id}.")
         except Exception as e:
             self.logger.error(f"Failed to set RAM to {ram}: {e}")
             raise
+
+    @staticmethod
+    def _memory_settings(ram, balloon):
+        """The `qm set` arguments that move the ceiling to `ram` coherently.
+
+        An explicit balloon target travels with the ceiling, for two reasons:
+        Proxmox rejects a ceiling below its balloon, so a shrink would fail
+        outright; and a guest rebooting into a higher ceiling would otherwise
+        stay pinned at the old balloon and never see the memory it was given.
+
+        Nothing is written when there is no explicit target. `balloon: 0` is
+        the operator saying "no ballooning", and an absent key already tracks
+        `memory` on its own — writing either one would pin a value the
+        operator did not choose.
+        """
+        if not balloon:
+            return f"-memory {ram}"
+        return f"-memory {ram} -balloon {ram}"
+
+    @staticmethod
+    def _live_memory_blocker(is_running, memory_hotplug, numa_enabled):
+        """Name the one thing standing between this guest and live memory."""
+        if not is_running:
+            return "The guest is not running."
+        if not memory_hotplug:
+            return "Enable 'hotplug: memory' for live memory scaling."
+        if not numa_enabled:
+            return "NUMA is disabled; enable it and reboot the guest once."
+        return ""
 
     def _scale_cpu_up(self, current_cores, current_vcpus):
         """Helper method to scale CPU up, using hotplug when available."""

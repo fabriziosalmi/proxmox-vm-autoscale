@@ -80,6 +80,11 @@ ignore = [
   "SIM117",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+  "e2e: drives a real Proxmox node and resizes a real VM; skipped unless VMA_E2E_HOST is set",
+]
+
 [tool.coverage.run]
 source = ["."]
 omit = ["tests/*", ".venv/*", "docs/*", "conftest.py", "setup.py"]
