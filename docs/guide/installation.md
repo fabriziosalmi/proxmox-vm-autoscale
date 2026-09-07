@@ -25,6 +25,13 @@ Either way you end up with the same layout:
 bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autoscale/main/install.sh)
 ```
 
+The installer resolves and installs the **latest release tag**. To install the
+development branch instead:
+
+```bash
+VM_AUTOSCALE_REF=main bash <(curl -s https://raw.githubusercontent.com/fabriziosalmi/proxmox-vm-autoscale/main/install.sh)
+```
+
 ::: danger You are piping a remote script into a root shell
 This fetches whatever is on `main` at that moment and runs it as root, with no signature and no checksum. That is a real supply-chain exposure, not a theoretical one. If you would rather not, [download and read it first](#reviewing-the-installer) or use the [manual install](#option-b-manual-install).
 :::
@@ -33,7 +40,7 @@ The script must run as root. It will:
 
 1. Create `/etc/vm_autoscale/` (mode `700`) and back up any existing `config.yaml` into it.
 2. `apt-get install` `python3`, `curl`, `bash`, `git`, `python3-paramiko`, `python3-yaml`, `python3-requests`, `python3-cryptography`.
-3. **Delete** `/usr/local/bin/vm_autoscale/` if it exists, then clone the repository into it.
+3. **Delete** `/usr/local/bin/vm_autoscale/` if it exists, then clone the resolved release tag into it.
 4. Restore your backed-up `config.yaml` over the shipped example.
 5. `pip3 install -r requirements.txt` — best effort; see [below](#if-pip3-install-fails).
 6. Set permissions — including locking `config.yaml` to mode `600`, because it holds your SSH password.

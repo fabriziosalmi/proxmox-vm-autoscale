@@ -9,16 +9,6 @@ Everything on this page is known and reproducible at the time of writing. It is 
 
 Items are grouped by whether they can bite you silently.
 
-## Silent failure modes
-
-These produce wrong behaviour without an obvious error.
-
-### A `proxmox_host` typo skips the VM without a word
-
-VMs are matched to hosts by exact string equality on `name`. A mismatch means the VM entry is never reached — no warning, no error, it simply never appears in the log.
-
-**Workaround:** after any config change, confirm every managed VM appears in a `VM <id> current usage` line within one cycle.
-
 ## Documented-but-absent behaviour
 
 ### `logging` in `config.yaml` is inert by default
@@ -32,6 +22,8 @@ If `logging_config.json` exists it is loaded via `dictConfig` and the `logging` 
 ### Cooldown state is lost on restart
 
 Cooldown timers live in process memory. `systemctl restart` clears them and the first cycle after can scale immediately. Repeated restarts remove rate limiting entirely.
+
+The sustained-shrink requirement (`scale_down_after_cycles`) is also in-memory, so a restart clears the streak too — which is the safe direction, since it delays a shrink rather than causing one.
 
 ### `check_interval` is a floor, not a period
 
@@ -49,9 +41,9 @@ Fixed at 1 core and 512 MB per action, in `vm_manager.py`. Recovering from a lar
 
 One process, no leader election, no shared state. Two instances managing the same VM will fight, since neither sees the other's cooldowns.
 
-### `ssh_password` silently overrides `ssh_key`
+### `ssh_password` still overrides `ssh_key`
 
-When both are present the password is used. The shipped example fills in both with placeholders.
+When both are present the password is used and the key is ignored. Startup validation now warns about it by host, but the precedence itself has not changed.
 
 ## Security constraints
 

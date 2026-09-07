@@ -113,7 +113,7 @@ Yes — `dry_run: true`. Everything is evaluated and nothing is changed: no `qm 
 
 ### Is it safe for production?
 
-It is a small single-process service with 201 unit tests, run by its author and by others across 302 stars and 23 forks. It holds root credentials and has known constraints documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
+It is a small single-process service with 290 unit tests, run by its author and by others across 302 stars and 23 forks. It holds root credentials and has known constraints documented on the [limitations](/reference/limitations) page. Read that page and the [threat model](/security/), pilot it on VMs you can afford to disturb, and decide for yourself.
 
 ## Project
 

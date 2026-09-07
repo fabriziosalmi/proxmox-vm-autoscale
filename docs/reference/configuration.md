@@ -155,6 +155,36 @@ virtual_machines:
 | `thresholds` | map | no | Per-VM overrides of `scaling_thresholds`. Flat (`cpu_high`, `cpu_low`, `ram_high`, `ram_low`) or nested (`cpu: { high, low }`). Any bound you omit keeps the global value |
 | `scaling_limits` | map | no | Per-VM overrides of the global `scaling_limits`. Same keys; any you omit keep the global value |
 
+## Validation
+
+The whole file is validated at startup: types, ranges, enumerations,
+cross-field consistency and referential integrity. Every problem is reported at
+once, one per line, and the service refuses to start:
+
+```
+CRITICAL Refusing to start. 3 configuration problem(s) found:
+  - scaling_thresholds.cpu.high: expected a value between 0 and 100, got 150
+  - virtual_machines[0].proxmox_host: 'pve-typo' does not match any
+    proxmox_hosts name (pve1, pve2)
+  - proxmox_hosts[1]: needs either ssh_password or ssh_key
+```
+
+An **unknown key is a warning, not an error** — rejecting outright would break
+configurations carrying a key from a newer version — but it is reported by
+path, so a typo stops being invisible:
+
+```
+WARNING Configuration: scaling_limits.max_ram: unknown key; it is not read by
+        anything and will have no effect
+```
+
+::: info This is the fix for a whole class of defect
+`scaling_limits`, per-VM `thresholds`, `ssh_port` and per-VM limits each
+shipped broken in the same way: a key that was written, documented and never
+read, with no error anywhere. That is what validation exists to make
+impossible.
+:::
+
 ## `dry_run`
 
 ```yaml
@@ -194,6 +224,30 @@ logged and the service continues without metrics.
 :::
 
 Full metric list: [operations](/guide/operations#metrics).
+
+## Scaling behaviour
+
+```yaml
+scale_down_after_cycles: 2
+notification_dedup_seconds: 900
+```
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `scale_down_after_cycles` | int | `2` | Consecutive readings below the low threshold required before shrinking |
+| `notification_dedup_seconds` | int | `900` | Suppress identical notifications for this long; `0` disables |
+
+::: tip Growing and shrinking are not symmetric
+Adding capacity fails safe. Reclaiming memory from a guest that is using it
+drives it into swap or to the OOM killer, and a vCPU unplug may simply be
+refused. A shrink therefore has to be *sustained*: any reading back inside the
+dead band resets the streak. Growth still acts on the first reading.
+:::
+
+Deduplication collapses messages that differ only in their measured values, so
+`CPU: 91.2%` and `CPU: 93.7%` count as one event — but node identifiers are
+preserved, so `pve1 unreachable` and `pve2 unreachable` remain distinct. When
+suppression ends, the log states how many messages were withheld.
 
 ## SSH host key verification
 

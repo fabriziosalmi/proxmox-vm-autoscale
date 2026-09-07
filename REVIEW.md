@@ -4,6 +4,16 @@
 **Scope:** product strategy, architecture, correctness, security, reliability, test quality, engineering process, documentation
 **Method:** full read of the 2,426 lines of production Python, the 2,668 lines of tests, the installer, the systemd unit, the CI and docs pipelines, the 18-page documentation site, and the git history (148 commits, 7 tags). Measurements were taken against the reviewed commit and are quoted inline.
 
+> [!NOTE]
+> **Status.** This is a snapshot of `v1.6.0` and is kept unedited as the
+> historical record. Much of what it describes has since been addressed — the
+> configuration contract, atomic billing writes, signal handling, sustained
+> shrink, notification deduplication, release identity, CI gates and the
+> coverage inversion. See the `[Unreleased]` section of
+> [CHANGELOG.md](CHANGELOG.md) for what changed and what deliberately did not.
+> The strategic criticism in §2 and the structural items in §3.3, §3.5 and §7.6
+> stand as written.
+
 This document records **problems only**. It deliberately proposes no solutions: the value of the exercise is an unflinching inventory, and mixing remedies into it makes the inventory easier to argue with and easier to feel good about.
 
 Everything below is written about the project as it stands today, including the substantial portion of it written today.

@@ -56,6 +56,7 @@ listener. The whole service is one blocking loop over SSH.
 | `ssh_utils.py` | Paramiko wrapper: connect with backoff, execute, close |
 | `billing_tracker.py` | Spec-change recording and costed period reports |
 | `metrics.py` | Prometheus registry and a daemon-thread HTTP endpoint |
+| `config_schema.py` | The configuration contract, validated once at startup |
 
 ## The cycle
 
@@ -84,7 +85,7 @@ them. The only durable state the service writes is the billing JSON file.
 
 ## Tests
 
-201 unit tests in `tests/`, run with `pytest`. SSH is mocked throughout, so
+290 unit tests in `tests/`, run with `pytest`. SSH is mocked throughout, so
 anything depending on real `pvesh` output format is not covered by CI.
 
 ```bash

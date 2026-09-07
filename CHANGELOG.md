@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Everything here comes from acting on [REVIEW.md](https://github.com/fabriziosalmi/proxmox-vm-autoscale/blob/main/REVIEW.md), a full critical
+review of `v1.6.0`. Ordered by the risk register in that document.
+
+### Fixed
+
+- **Billing data could be destroyed by a routine `systemctl stop`.** The state
+  file was opened with mode `w`, which truncates before the first byte is
+  written, and there was no signal handling anywhere — so `SIGTERM` killed the
+  process wherever it was, including mid-write. On restart the read failed,
+  logged a warning nobody alerts on, and continued with empty state; the next
+  scaling action then wrote that empty state over the damaged file. Writes are
+  now atomic (temp file, fsync, rename). An unreadable file is quarantined as
+  `.corrupt-<timestamp>`, writes are disabled for the run so nothing can
+  overwrite it, and the service carries on scaling with billing off.
+- **`SIGTERM` and `SIGINT` are handled.** Only `KeyboardInterrupt` was caught,
+  which is `SIGINT` alone. The loop now stops between VMs and waits on an event
+  instead of sleeping, so a stop is acted on at once rather than up to
+  `check_interval` later. The systemd unit gives it 45 seconds to do that.
+- **A failed reconnect inside `execute_command` reported the wrong error.**
+  `self.client` was left as `None`, so every remaining attempt raised
+  `AttributeError` and buried the actual transport failure.
+- **Billing timestamps are timezone-aware UTC.** They were naive, so any period
+  spanning a DST transition was off by an hour with no way to detect it.
+- **`install.sh` installs a release, not a branch.** It cloned the default
+  branch, so the command the README puts first shipped unreleased code and the
+  release tags were consumed by nobody following the documented path.
+
+### Added
+
+- **A configuration contract** (`config_schema.py`). Validation was one check
+  that four top-level keys existed; everything else was read with an inline
+  `.get()` and an inline default across 56 sites in three modules. A key that
+  was written, documented and never read produced no error anywhere — which is
+  exactly how `scaling_limits`, per-VM `thresholds`, `ssh_port` and per-VM
+  limits each shipped broken. The whole file is now validated for types,
+  ranges, enumerations, cross-field consistency and referential integrity, and
+  every problem is reported at once. A VM naming a host that does not exist is
+  an error rather than a VM silently skipped forever. Unknown keys are warnings,
+  so a config carrying a newer key still boots.
+- **Sustained shrink** (`scale_down_after_cycles`, default 2). Growing fails
+  safe; reclaiming memory from a guest that is using it drives it into swap or
+  to the OOM killer, and a vCPU unplug may be refused. The two were treated
+  identically, on a single sample.
+- **Notification deduplication** (`notification_dedup_seconds`, default 900).
+  An unreachable node produced one priority-9 notification per VM per cycle —
+  240 an hour for twenty VMs, with the real alert somewhere underneath.
+- **A version constant**, logged at startup and carried as a label on
+  `vm_autoscale_build_info`. The service could not previously state what it was.
+- **`pyproject.toml`**: installable, packageable, with an entry point and upper
+  bounds on dependencies.
+- **CI gates**: `ruff`, a coverage floor, `pip-audit` (which `SECURITY.md` has
+  been recommending to contributors while CI never ran it), and a check that the
+  shipped `config.yaml` passes its own validator.
+- 89 tests, 290 total.
+
+### Changed
+
+- **`qm config` is fetched once per cycle instead of three times per scaling
+  decision**, and the running state is cached rather than re-queried seconds
+  after `process_vm` established it. Measured: 5 SSH commands per `scale_cpu`
+  down to 2.
+- **Test coverage no longer inverts the risk.** `autoscale.py` was at 63% and
+  `ssh_utils.py` at 63% while the optional metrics endpoint sat at 100%; the
+  main loop, the entrypoint, the constructor and `execute_command` were entirely
+  untested. They are now 86% and 93%, 87% overall.
+- **Tests build a real `VMAutoscaler`.** Every test patched `__init__` away and
+  hand-assembled seven attributes, so the constructor was never executed and
+  adding one field broke ten tests with no behaviour change.
+- **`process_vm` went from 95 lines to 42**, with each step named and the
+  near-identical CPU and RAM branches collapsed into one.
+- **Bare `Exception` raises are typed** as `SSHCommandError` and
+  `HostResourceUnavailable`, so callers and tests can be specific.
+- **A webhook script writable by group or others is refused.** It executes as
+  root at every billing period boundary.
+
+### Not addressed
+
+Stated plainly rather than left to inference. From REVIEW.md: there is still no
+hypervisor abstraction (§3.3), the loop is still sequential with no parallelism
+(§3.5), `host_limits` is still global per fleet rather than per node, cooldown
+state is still in memory, the install location still violates FHS, and the
+strategic criticism in §2 — the reaction envelope, the billing feature's
+category error, the commercial model — is not something code can fix.
+
 ## [1.6.0] - 2026-09-05
 
 > **Upgrade note.** A scaling action that fails now **raises** instead of being
