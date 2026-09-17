@@ -2,7 +2,7 @@
 layout: home
 title: Proxmox VM Autoscale
 titleTemplate: Right-size Proxmox VMs automatically
-description: Threshold-based CPU and RAM autoscaling for Proxmox VE virtual machines — a systemd service that drives qm over SSH, with hotplug support, host safety limits and Gotify/SMTP notifications.
+description: 'Threshold-based CPU and RAM autoscaling for Proxmox VE virtual machines: a systemd service that drives qm over SSH, with hotplug and host safety limits.'
 
 hero:
   name: Proxmox VM Autoscale

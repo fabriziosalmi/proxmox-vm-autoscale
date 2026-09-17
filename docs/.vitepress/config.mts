@@ -8,9 +8,8 @@ const OG_IMAGE =
   'https://repository-images.githubusercontent.com/864497613/5d9ba1ce-1327-4f6a-a1ed-9a75a2382609'
 
 const DESCRIPTION =
-  'Threshold-based CPU and RAM autoscaling for Proxmox VE virtual machines. ' +
-  'A systemd service that drives qm over SSH, with hotplug support, host safety ' +
-  'limits and Gotify/SMTP notifications.'
+  'Threshold-based CPU and RAM autoscaling for Proxmox VE virtual machines: ' +
+  'a systemd service that drives qm over SSH, with hotplug and host safety limits.'
 
 /** Absolute URL for a page path emitted by VitePress (e.g. "guide/index.md"). */
 function canonicalFor(relativePath: string): string {
@@ -94,8 +93,10 @@ export default defineConfig({
 
   head: [
     ['link', { rel: 'icon', href: BASE + 'favicon.svg', type: 'image/svg+xml' }],
+    ['link', { rel: 'apple-touch-icon', sizes: '180x180', href: BASE + 'apple-touch-icon.png' }],
     ['meta', { name: 'theme-color', content: '#e57000' }],
     ['meta', { name: 'author', content: 'Fabrizio Salmi' }],
+    ['meta', { name: 'robots', content: 'index, follow, max-image-preview:large' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'Proxmox VM Autoscale' }],
     ['meta', { property: 'og:image', content: OG_IMAGE }],
