@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# The jobs only read the code. Without this block the token takes the repo
+# default, which grants write on contents, packages and pull requests.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: test (py${{ matrix.python-version }})
