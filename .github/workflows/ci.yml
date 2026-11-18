@@ -37,8 +37,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      # Pinned: a new ruff release can add rules and turn main red without a
+      # code change. Raise the version in its own PR, with the fixes it asks for.
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.17.3
       - name: Lint
         run: ruff check .
 
