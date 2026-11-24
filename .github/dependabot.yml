@@ -3,6 +3,8 @@ version: 2
 updates:
   # Runtime dependencies of the service itself.
   - package-ecosystem: "pip"
+    cooldown:
+      default-days: 7
     directory: "/"
     schedule:
       interval: "weekly"
@@ -18,6 +20,8 @@ updates:
   # Actions used by the CI and Pages workflows. Previously unwatched, so the
   # pinned action majors never received updates.
   - package-ecosystem: "github-actions"
+    cooldown:
+      default-days: 7
     directory: "/"
     schedule:
       interval: "weekly"
@@ -33,6 +37,8 @@ updates:
   # Documentation toolchain. Build-time only — it never ships to users — but it
   # still surfaces advisories on the default branch.
   - package-ecosystem: "npm"
+    cooldown:
+      default-days: 7
     directory: "/"
     schedule:
       interval: "weekly"
